@@ -4,25 +4,41 @@ import ReactDOM from 'react-dom/client';
 import { Shortcut } from '../types/types';
 import { processEventCode } from '../utils/keys';
 import { isMac } from '../utils/os';
+import { sendMessage } from '../utils/messaging';
 
 type Props = {};
 let value: string[] = [];
 
 const ContentScript = (props: Props) => {
-    let wasTextSelected = false;
+    const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
     const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>([]);
     const [fixedShortcuts, setFixedShortcuts] = useState<Shortcut[]>([]);
-    const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
     const googleDocDocument = document.querySelector(".docs-texteventtarget-iframe");
 
+    async function initialize() {
+        try {
+            const loginStatus = await sendMessage<{ isLoggedIn: boolean }>({ type: 'isLoggedIn' });
+            if (loginStatus && typeof loginStatus.isLoggedIn !== 'undefined') {
+                setIsLoggedIn(loginStatus.isLoggedIn);
+            } else {
+                setIsLoggedIn(false);
+            }
+
+            const shortcuts = await sendMessage<{ customShortcuts: Shortcut[], fixedShortcuts: Shortcut[] }>({ type: 'fetchShortcuts' });
+            if (shortcuts) {
+                setCustomShortcuts(shortcuts.customShortcuts || []);
+                setFixedShortcuts(shortcuts.fixedShortcuts || []);
+            }
+        } catch (error) {
+            console.error('BoldTake Error: Failed to initialize content script.', error);
+            setIsLoggedIn(false);
+            setCustomShortcuts([]);
+            setFixedShortcuts([]);
+        }
+    }
+
     useEffect(() => {
-        chrome.runtime.sendMessage({ type: 'isLoggedIn' }, (response) => {
-            setIsLoggedIn(response.isLoggedIn);
-        });
-        chrome.runtime.sendMessage({ type: 'fetchShortcuts' }, (response) => {
-            if (response.customShortcuts) setCustomShortcuts(response.customShortcuts);
-            if (response.fixedShortcuts) setFixedShortcuts(response.fixedShortcuts);
-        });
+        initialize();
     }, []);
 
     async function handleKeyboardShortcut(event: KeyboardEvent) {
@@ -34,35 +50,23 @@ const ContentScript = (props: Props) => {
             if ((isMac() && value.join('+') === 'meta+e') || (!isMac() && value.join('+') === 'alt+e')) {
                 event.preventDefault();
                 event.stopImmediatePropagation();
-
-                chrome.runtime.sendMessage({
-                    type: 'toggleSidePanel',
-                })
+                await sendMessage({ type: 'toggleSidePanel' });
             }
             
-            if (fixedShortcuts.length === 0) {
-                chrome.runtime.sendMessage({ type: 'fetchShortcuts' }, (response) => {
-                    if (response.customShortcuts) setCustomShortcuts(response.customShortcuts);
-                    if (response.fixedShortcuts) setFixedShortcuts(response.fixedShortcuts);
-                });
-            }
-
             const fixedShortcutdata = fixedShortcuts.find(z => z.shortcut_keys == value.join('+'));
             const customShortcutData = customShortcuts.find(z => z.shortcut_keys == value.join('+'));
 
-            if (fixedShortcutdata === undefined && customShortcutData === undefined) return
+            if (fixedShortcutdata === undefined && customShortcutData === undefined) return;
 
             let selectedText = window.getSelection()?.toString().trim();
 
-            // for google docs
             if (googleDocDocument) {
                 // @ts-ignore
                 googleDocDocument.contentDocument.execCommand("copy");
                 // @ts-ignore
-                const selectedTextGoogleDoc = googleDocDocument.contentDocument.body.innerText
-
+                const selectedTextGoogleDoc = googleDocDocument.contentDocument.body.innerText;
                 if (!selectedText) {
-                    selectedText = selectedTextGoogleDoc
+                    selectedText = selectedTextGoogleDoc;
                 }
             }
 
@@ -70,18 +74,16 @@ const ContentScript = (props: Props) => {
                 return;
             }
 
-            chrome.runtime.sendMessage({
+            await sendMessage({
                 type: 'textSelected',
                 shortcut_id: customShortcutData?.shortcut_id ?? fixedShortcutdata?.shortcut_id,
                 text: selectedText,
             });
 
-            // stop other listeners from being executed
             event.preventDefault();
             event.stopImmediatePropagation();
-
         } catch (error) {
-            console.error('Failed to handle keyboard shortcut: ', error);
+            console.error('BoldTake Error: Failed to handle keyboard shortcut.', error);
         }
     }
 
@@ -100,39 +102,27 @@ const ContentScript = (props: Props) => {
         }
     };
 
-    function handleSelectionChange() {
-        const selectedText = window.getSelection()?.toString();
-
-        if (selectedText && !wasTextSelected) {
-            if (customShortcuts.length > 0 && fixedShortcuts.length > 0) {
-                return;
+    async function handleSelectionChange() {
+        try {
+            const selectedText = window.getSelection()?.toString();
+            if (selectedText) {
+                await sendMessage({ type: 'tempTextSelected' });
+            } else {
+                await sendMessage({ type: 'tempTextDeselected' });
             }
-            chrome.runtime.sendMessage({ type: 'fetchShortcuts' }, (response) => {
-                if (response.customShortcuts) setCustomShortcuts(response.customShortcuts);
-                if (response.fixedShortcuts) setFixedShortcuts(response.fixedShortcuts);
-            });
-            chrome.runtime.sendMessage({
-                type: 'tempTextSelected',
-            });
-            wasTextSelected = true;
-        }
-
-        if (!selectedText) {
-            onSelectionCleared();
-            wasTextSelected = false;
+        } catch (error) {
+            console.error('BoldTake Error: Failed to handle selection change.', error);
         }
     }
 
-    function addEventListeners(){
+    function addEventListeners() {
         document.addEventListener('keydown', handleKeyboardShortcut, true);
         document.addEventListener('keyup', handleKeyUp, true);
         document.addEventListener('selectionchange', handleSelectionChange);
 
-
         chrome.runtime.onMessage.addListener(messageListener);
 
         if (googleDocDocument) {
-            // for google docs
             // @ts-ignore
             const googleDocContentDocument = googleDocDocument.contentDocument;
             if (googleDocContentDocument) {
@@ -146,11 +136,9 @@ const ContentScript = (props: Props) => {
         document.removeEventListener('keydown', handleKeyboardShortcut, true);
         document.removeEventListener('keyup', handleKeyUp, true);
         document.removeEventListener('selectionchange', handleSelectionChange);
-
         chrome.runtime.onMessage.removeListener(messageListener);
 
         if (googleDocDocument) {
-            // for google docs
             // @ts-ignore
             const googleDocContentDocument = googleDocDocument.contentDocument;
             if (googleDocContentDocument) {
@@ -160,18 +148,12 @@ const ContentScript = (props: Props) => {
         }
     }
 
-    function onSelectionCleared() {
-        chrome.runtime.sendMessage({
-            type: 'tempTextDeselected',
-        });
-    }
-
     useEffect(() => {
         addEventListeners();
         return () => {
             removeEventListeners();
         };
-    })
+    }, []);
 
     return <div id="belikenative"></div>;
 };

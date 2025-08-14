@@ -6,6 +6,7 @@
   "scripts": {
     "watch": "webpack --config webpack/webpack.dev.js --watch",
     "build": "webpack --config webpack/webpack.prod.js",
+    "build:boldtake": "webpack --config webpack/webpack.boldtake.js",
     "build-firefox": "node src/utils/build-firefox.js",
     "zip-folder": "zip -r belikenative.zip dist/",
     "clean": "rimraf dist",
@@ -40,10 +41,14 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "@babel/preset-typescript": "^7.27.1",
     "@types/chrome": "0.0.158",
     "@types/jest": "^29.5.0",
     "@types/react": "^18.0.29",
     "@types/react-dom": "^18.0.11",
+    "babel-loader": "^10.0.0",
     "copy-webpack-plugin": "^9.0.1",
     "css-loader": "^7.1.2",
     "dotenv": "^16.4.5",

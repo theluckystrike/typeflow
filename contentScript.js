@@ -71,18 +71,9 @@ async function startContinuousSession(isResuming = false) {
     while (sessionStats.isRunning && sessionStats.processed < sessionStats.target) {
       await processNextTweet();
       
-      // Human-like delay between tweets (3-5 minutes for a very slow pace)
-      if (sessionStats.isRunning && sessionStats.processed < sessionStats.target) {
-        const delay = randomDelay(180000, 300000); // 180-300 seconds
-        const minutes = Math.floor(delay / 60000);
-        const seconds = Math.floor((delay % 60000) / 1000);
-        
-        showStatus(`⏳ Next tweet in ${minutes}m ${seconds}s... (${sessionStats.successful}/${sessionStats.target} completed)`);
-        console.log(`⏰ Waiting ${minutes}m ${seconds}s before next tweet...`);
-        
-        await sleep(delay);
-      }
-      
+      // A smaller, more dynamic delay to seem human
+      const delay = randomDelay(2000, 5000);
+      await sleep(delay);
     }
   } catch (error) {
     console.error('💥 CRITICAL ERROR! Refreshing page to recover...', error);
@@ -97,51 +88,68 @@ async function startContinuousSession(isResuming = false) {
   showSessionSummary();
 }
 
+function isSpam(text: string): boolean {
+    const spamKeywords = [
+        'leaks', 'onlyfans', 'bokep', 'sophie rain', 
+        'fanfreeleak', 'spiderman video', 'adult content',
+        'subscribe to my', 'check my bio'
+    ];
+    const lowerCaseText = text.toLowerCase();
+    return spamKeywords.some(keyword => lowerCaseText.includes(keyword));
+}
+
 async function processNextTweet() {
-  sessionStats.processed++;
-  showStatus(`🔍 Processing tweet ${sessionStats.processed}/${sessionStats.target}...`);
-  console.log(`\n🎯 === Tweet ${sessionStats.processed}/${sessionStats.target} ===`);
+    sessionStats.processed++;
+    showStatus(`🔍 Processing tweet ${sessionStats.processed}/${sessionStats.target}...`);
+    console.log(`\n🎯 === Tweet ${sessionStats.processed}/${sessionStats.target} ===`);
 
-  // --- Main Page Scope ---
-  const tweet = findTweet();
-  if (!tweet) {
-    showStatus(`❌ No new tweets found.`);
-    sessionStats.failed++;
-    return;
-  }
+    const tweet = findTweet();
+    if (!tweet) {
+        showStatus(`✅ No new tweets found. Scrolling for more...`);
+        window.scrollTo(0, document.body.scrollHeight);
+        await sleep(randomDelay(3000, 5000));
+        sessionStats.processed--;
+        return;
+    }
 
-  // Mark the tweet as processed so we don't select it again
-  tweet.setAttribute('data-boldtake-processed', 'true');
+    let tweetText = tweet.querySelector('[data-testid="tweetText"]')?.textContent || '';
+    const quoteTweet = tweet.querySelector('div[role="link"]');
+    if (quoteTweet) {
+        const quoteTweetText = quoteTweet.textContent || '';
+        tweetText = `${tweetText}\n\nQuoted Tweet:\n${quoteTweetText}`;
+    }
 
-  const replyButton = tweet.querySelector('[data-testid="reply"]');
-  if (!replyButton) {
-    showStatus(`❌ Reply button not found on tweet.`);
-    sessionStats.failed++;
-    return;
-  }
-  
-  console.log('🖱️ Clicking reply button to open modal...');
-  replyButton.click();
-  await sleep(randomDelay(2000, 3000)); // Wait for reply modal to appear
+    if (isSpam(tweetText) || tweetText.length < 150) {
+        showStatus(`⏩ Tweet is spam or too short, skipping...`);
+        tweet.setAttribute('data-boldtake-processed', 'true');
+        return;
+    }
 
-  // --- Reply Modal Scope ---
-  // From now on, we ONLY interact within the reply modal.
-  const success = await handleReplyModal(tweet);
+    tweet.setAttribute('data-boldtake-processed', 'true');
 
-  if (success) {
-    sessionStats.successful++;
-    showStatus(`✅ Tweet ${sessionStats.processed}/${sessionStats.target} replied!`);
+    const replyButton = tweet.querySelector('[data-testid="reply"]');
+    if (!replyButton) {
+        showStatus(`❌ Reply button not found on tweet.`);
+        sessionStats.failed++;
+        return;
+    }
     
-    // Like the tweet after successful reply
-    await likeTweet(tweet);
+    console.log('🖱️ Clicking reply button to open modal...');
+    replyButton.click();
+    await sleep(randomDelay(2000, 3000));
 
-  } else {
-    sessionStats.failed++;
-    showStatus(`❌ Failed to process reply for tweet ${sessionStats.processed}.`);
-    console.log(`❌ Failed. Total successful: ${sessionStats.successful}/${sessionStats.target}`);
-    // We might need to close a stuck modal here in the future
-  }
-  await saveSession();
+    const success = await handleReplyModal(tweet);
+
+    if (success) {
+        sessionStats.successful++;
+        showStatus(`✅ Tweet ${sessionStats.processed}/${sessionStats.target} replied!`);
+        await likeTweet(tweet);
+    } else {
+        sessionStats.failed++;
+        showStatus(`❌ Failed to process reply for tweet ${sessionStats.processed}.`);
+        console.log(`❌ Failed. Total successful: ${sessionStats.successful}/${sessionStats.target}`);
+    }
+    await saveSession();
 }
 
 async function handleReplyModal(originalTweet) {
@@ -607,5 +615,5 @@ async function loadSession() {
 
 // Initialize
 console.log('✅ BoldTake Professional ready! Go to X.com and click Start.');
-console.log('🎯 Session mode: 55 tweets with intelligent 1-66 second delays');
+console.log('🎯 Session mode: 350 tweets with dynamic delays');
 console.log('☕ Optimized for extended automation sessions!');
