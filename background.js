@@ -58,7 +58,7 @@ async function generateReplyWithOpenAI(prompt, tweetText) {
             content: prompt
           }
         ],
-        max_tokens: 100,
+        max_tokens: 60,
         temperature: 0.8
       })
     });

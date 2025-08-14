@@ -5,7 +5,6 @@
 
 console.log('🚀 BoldTake Professional loading...');
 
-let isRunning = false;
 let sessionStats = {}; // Will be loaded from storage
 
 // --- Initialization ---
@@ -32,7 +31,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({success: true, message: 'BoldTake session started'});
   } else if (message.type === 'BOLDTAKE_STOP') {
     console.log('🛑 Stopping BoldTake session...');
-    isRunning = false;
+    sessionStats.isRunning = false; // Correctly use sessionStats
     showSessionSummary();
     sendResponse({success: true, message: 'BoldTake session stopped'});
   } else if (message.type === 'GET_SESSION_STATS') {
@@ -73,7 +72,7 @@ async function startContinuousSession(isResuming = false) {
       await processNextTweet();
       
       // Human-like delay between tweets (3-5 minutes for a very slow pace)
-      if (isRunning && sessionStats.processed < sessionStats.target) {
+      if (sessionStats.isRunning && sessionStats.processed < sessionStats.target) {
         const delay = randomDelay(180000, 300000); // 180-300 seconds
         const minutes = Math.floor(delay / 60000);
         const seconds = Math.floor((delay % 60000) / 1000);
@@ -131,8 +130,11 @@ async function processNextTweet() {
 
   if (success) {
     sessionStats.successful++;
-    showStatus(`✅ Tweet ${sessionStats.processed}/${sessionStats.target} completed!`);
-    console.log(`✅ Success! Total: ${sessionStats.successful}/${sessionStats.target}`);
+    showStatus(`✅ Tweet ${sessionStats.processed}/${sessionStats.target} replied!`);
+    
+    // Like the tweet after successful reply
+    await likeTweet(tweet);
+
   } else {
     sessionStats.failed++;
     showStatus(`❌ Failed to process reply for tweet ${sessionStats.processed}.`);
@@ -273,12 +275,29 @@ async function gracefullyCloseModal() {
 
 function findTweet() {
   const tweets = document.querySelectorAll('[data-testid="tweet"]:not([data-boldtake-processed="true"])');
-  console.log(`📊 Found ${tweets.length} unprocessed tweets`);
+  console.log(`📊 Found ${tweets.length} unprocessed and unliked tweets`);
   
   if (tweets.length === 0) return null;
   
-  // Return the first unprocessed tweet found
+  // Return the first valid tweet found
   return tweets[0];
+}
+
+async function likeTweet(tweet) {
+  const likeButton = tweet.querySelector('[data-testid="like"]');
+  if (likeButton) {
+    console.log(' M-BM-^@M-^S Liking the tweet...');
+    likeButton.click();
+    await sleep(500); // Small delay after liking
+    return true;
+  }
+  console.warn(' M-BM-^@M-^S Like button not found.');
+  return false;
+}
+
+async function isTweetLiked(tweet) {
+  // If the "Unlike" button is present, it means the tweet is already liked.
+  return tweet.querySelector('[data-testid="unlike"]') !== null;
 }
 
 async function typeReply(text) {
@@ -398,10 +417,9 @@ function showCornerNotification(message) {
     font-weight: 500;
     z-index: 10000;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    border: 1px solid #333;
-    max-width: 300px;
-    word-wrap: break-word;
-    animation: slideIn 0.3s ease-out;
+    border: 1px solid #333; max-width: 300px; word-wrap: break-word; animation: slideIn 0.3s ease-out;
+    white-space: pre-wrap; /* Ensure newlines are rendered */
+    line-height: 1.4; /* Improve readability */
   `;
   
   // Add animation keyframes
@@ -417,7 +435,9 @@ function showCornerNotification(message) {
     document.head.appendChild(style);
   }
   
-  notification.textContent = message;
+  const headerText = "BoldTake is doing the hard job for you, sip coffee and watch some movies on Netflix ☕️🎬\n\n";
+  const statusLabel = "Current status:\n";
+  notification.textContent = headerText + statusLabel + message;
   
   // Add to page
   document.body.appendChild(notification);
@@ -432,51 +452,9 @@ function randomDelay(min, max) {
 }
 
 async function generateSmartReply(tweetText, tweetNumber) {
-  // Your proven prompts - no emojis, no generic responses
-  const PROVEN_PROMPTS = [
-    {
-      name: "Share a Founders Take",
-      template: "Write a founder's perspective reply to this tweet. Share a brief business insight or lesson learned. Keep it authentic and valuable. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Write a Proactive Reply", 
-      template: "Write a proactive, helpful reply that adds value to this conversation. Offer a practical suggestion or next step. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Challenge an Idea",
-      template: "Write a thoughtful challenge or alternative perspective to this tweet. Be respectful but offer a different angle. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Add Witty Humor",
-      template: "Add some witty humor to this tweet without being offensive. Keep it clever and light. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Craft a Viral Hook",
-      template: "Write an engaging reply that could spark more discussion. Make it thought-provoking. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Give High-Signal Praise",
-      template: "Write specific, meaningful praise that shows you actually read and understood the tweet. Be genuine. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Amplify a Key Point",
-      template: "Pick the most important point from this tweet and expand on it with your own insight. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Ask an Insightful Question",
-      template: "Ask a thoughtful follow-up question that shows genuine interest and could lead to valuable discussion. No emojis. Tweet: {TWEET}"
-    },
-    {
-      name: "Explain with an Analogy",
-      template: "Create a simple analogy that relates to this tweet and helps explain or expand the concept. No emojis. Tweet: {TWEET}"
-    }
-  ];
-  
-  // Use different prompt for each tweet to ensure uniqueness
-  const promptIndex = (tweetNumber - 1) % PROVEN_PROMPTS.length;
-  const selectedPrompt = PROVEN_PROMPTS[promptIndex];
-  
-  console.log(`Using prompt: ${selectedPrompt.name}`);
+  // 1. Analyze the tweet to select the best reply strategy
+  const selectedPrompt = selectBestPrompt(tweetText);
+  console.log(` M-BM-^@M-^S AI Strategy: ${selectedPrompt.name}`);
   
   try {
     // Call OpenAI API through background script
@@ -487,9 +465,11 @@ async function generateSmartReply(tweetText, tweetNumber) {
     });
     
     if (response && response.reply) {
-      // Clean the reply
+      // 3. Sanitize the output for a clean, professional look
       let cleanReply = response.reply
-        .replace(/^Reply:\s*/i, '') // Remove "Reply: " from the beginning, case-insensitive
+        .replace(/^Reply:\s*/i, '') // Remove "Reply: "
+        .replace(/@\w+/g, '') // Remove all @mentions
+        .replace(/#\w+/g, '') // Remove all #hashtags
         .replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '') // Remove emojis
         .replace(/[—–""'']/g, '') // Remove fancy dashes and quotes
         .replace(/\s+/g, ' ') // Clean multiple spaces
@@ -520,6 +500,72 @@ async function generateSmartReply(tweetText, tweetNumber) {
   
   return fallbacks[tweetNumber % fallbacks.length];
 }
+
+// --- AI Strategy & Prompts ---
+
+function selectBestPrompt(tweetText) {
+  const lowerText = tweetText.toLowerCase();
+
+  // Keyword-based prompt selection
+  if (lowerText.includes('should i') || lowerText.includes('how to') || lowerText.includes('?')) {
+    return PROVEN_PROMPTS.find(p => p.name === "Ask an Insightful Question");
+  }
+  if (lowerText.includes('we launched') || lowerText.includes('new feature') || lowerText.includes('announcing')) {
+    return PROVEN_PROMPTS.find(p => p.name === "Share a Founders Take");
+  }
+  if (lowerText.includes('i think') || lowerText.includes('in my opinion') || lowerText.includes('is better than')) {
+    return PROVEN_PROMPTS.find(p => p.name === "Challenge an Idea");
+  }
+  if (lowerText.includes('hilarious') || lowerText.includes('funny') || lowerText.includes('lol')) {
+    return PROVEN_PROMPTS.find(p => p.name === "Add Witty Humor");
+  }
+  
+  // Default to a random valuable prompt if no specific keywords match
+  const valuablePrompts = PROVEN_PROMPTS.filter(p => 
+    p.name !== "Add Witty Humor" && p.name !== "Challenge an Idea"
+  );
+  return valuablePrompts[Math.floor(Math.random() * valuablePrompts.length)];
+}
+
+// 2. Enhanced prompts for higher quality replies
+const PROVEN_PROMPTS = [
+  {
+    name: "Share a Founders Take",
+    template: "You are an experienced founder. Reply to this tweet with a brief, insightful business lesson. Frame it as a personal learning. Make it valuable, practical, and likely to be shared. Use 2-3 short sentences. Tweet: {TWEET}"
+  },
+  {
+    name: "Write a Proactive Reply", 
+    template: "Reply to this tweet by offering a practical, valuable suggestion or a helpful next step. Your goal is to be genuinely useful. Structure your reply in 2-3 concise sentences. Make it shareable. Tweet: {TWEET}"
+  },
+  {
+    name: "Challenge an Idea",
+    template: "Reply to this tweet with a respectful but insightful challenge to the main idea. Offer a compelling alternative perspective. Keep it brief (2-3 sentences) and thought-provoking to encourage discussion. Tweet: {TWEET}"
+  },
+  {
+    name: "Add Witty Humor",
+    template: "Reply to this tweet with a clever, witty observation. The humor should be light and intelligent. Keep it to 1-2 short sentences. Make it memorable and shareable. Tweet: {TWEET}"
+  },
+  {
+    name: "Craft a Viral Hook",
+    template: "Write a reply designed to go viral. It should be a thought-provoking, insightful, or surprising take on the original tweet. Use 2 short, powerful sentences to maximize impact. Tweet: {TWEET}"
+  },
+  {
+    name: "Give High-Signal Praise",
+    template: "Reply to this tweet with specific, high-signal praise. Show you understood the core point by highlighting a key insight. Be genuine and concise (2 sentences). Your goal is to add value, not just agree. Tweet: {TWEET}"
+  },
+  {
+    name: "Amplify a Key Point",
+    template: "Identify the single most important point in this tweet and expand on it with a unique insight or observation of your own. Your reply should be valuable and practical. Use 2-3 short sentences. Tweet: {TWEET}"
+  },
+  {
+    name: "Ask an Insightful Question",
+    template: "Reply to this tweet by asking a single, insightful follow-up question. The question should be open-ended and designed to spark a deeper conversation. Make it valuable and thought-provoking. Tweet: {TWEET}"
+  },
+  {
+    name: "Explain with an Analogy",
+    template: "Create a simple, powerful analogy that explains or expands on the concept in this tweet. The analogy should be practical and easy to understand. Keep it to 2-3 concise sentences to make it shareable. Tweet: {TWEET}"
+  }
+];
 
 function showSessionSummary() {
   const endTime = new Date();
