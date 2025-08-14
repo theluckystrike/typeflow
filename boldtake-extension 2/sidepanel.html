@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoldTake - AI-Powered X.com Automation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* BoldTake Color Palette - Inspired by SEObot */
+            --boldtake-bg: #0a0e1a;
+            --boldtake-surface: #1a1f35;
+            --boldtake-surface-hover: #252b47;
+            --boldtake-green: #00ff88;
+            --boldtake-green-hover: #00e67a;
+            --boldtake-accent: #64ffda;
+            --boldtake-blue: #4fc3f7;
+            --boldtake-purple: #ba68c8;
+            --boldtake-orange: #ffb74d;
+            --boldtake-red: #f48fb1;
+            --boldtake-text: #ffffff;
+            --boldtake-text-muted: #8892b0;
+            --boldtake-border: #2d3748;
+            --boldtake-shadow: rgba(0, 255, 136, 0.1);
+            --boldtake-glow: rgba(0, 255, 136, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--boldtake-bg);
+            color: var(--boldtake-text);
+            overflow-x: hidden;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: var(--boldtake-surface);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-bottom: 1px solid var(--boldtake-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 20px var(--boldtake-shadow);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(45deg, var(--boldtake-green), var(--boldtake-accent));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--boldtake-bg);
+            box-shadow: 0 0 20px var(--boldtake-glow);
+        }
+
+        .logo h1 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(45deg, #fff, #e0e0e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .version {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: auto;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.active { background: #4ade80; }
+        .status-dot.idle { background: #fbbf24; }
+        .status-dot.error { background: #ef4444; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-content {
+            padding: 20px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .section-icon {
+            font-size: 20px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .collapse-icon {
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+
+        .section.collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+
+        .section.collapsed .section-content {
+            display: none;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-label {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-description {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .range-input {
+            width: 100%;
+            -webkit-appearance: none;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .range-input::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #60a5fa;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .range-value {
+            text-align: center;
+            font-weight: 600;
+            color: #60a5fa;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .checkbox-item:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .console-output {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .console-line {
+            margin-bottom: 2px;
+            padding: 2px 0;
+        }
+
+        .console-line.info { color: #60a5fa; }
+        .console-line.success { color: #4ade80; }
+        .console-line.warning { color: #fbbf24; }
+        .console-line.error { color: #ef4444; }
+        .console-line.debug { color: #a78bfa; }
+
+        .console-timestamp {
+            color: rgba(255, 255, 255, 0.5);
+            margin-right: 8px;
+        }
+
+        .big-button {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(45deg, #4ade80, #22d3ee);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(34, 211, 238, 0.3);
+        }
+
+        .big-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(34, 211, 238, 0.4);
+        }
+
+        .big-button:active {
+            transform: translateY(0);
+        }
+
+        .big-button.stop {
+            background: linear-gradient(45deg, #ef4444, #f59e0b);
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
+        .big-button.stop:hover {
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80, #22d3ee);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            text-align: center;
+            font-size: 12px;
+            margin-top: 5px;
+            opacity: 0.8;
+        }
+
+        .filter-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .filter-tag {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            padding: 4px 10px;
+            border-radius: 16px;
+            font-size: 11px;
+            font-weight: 500;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+        }
+
+        .activity-feed {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .activity-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .activity-icon.success { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .activity-icon.info { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+        .activity-icon.warning { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+
+        .activity-content {
+            flex: 1;
+            font-size: 12px;
+        }
+
+        .activity-time {
+            font-size: 10px;
+            opacity: 0.6;
+        }
+
+        .premium-badge {
+            background: linear-gradient(45deg, #ffd700, #ffed4a);
+            color: #333;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            <div class="brand-section">
+                <h1>BoldTake</h1>
+                <p class="tagline">Let your AI intern engage on X.com for you</p>
+            </div>
+            <div class="subscription-info">
+                <div class="plan-badge">Monthly Plan</div>
+                <div class="premium-badge">↻ Premium Creator</div>
+            </div>
+        </div>
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot idle" id="statusDot"></div>
+                <span id="statusText">Ready to Start</span>
+            </div>
+            <div class="status-indicator">
+                <span>⚡</span>
+                <span id="apiStatus">API Connected</span>
+            </div>
+            <div class="status-indicator">
+                <span>🎯</span>
+                <span id="targetStatus">X.com Active</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content scrollbar-thin">
+        <!-- Control Center -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🎮</span>
+                <span class="section-title">Control Center</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <button class="big-button" id="startButton">
+                    🚀 Start AI Automation
+                </button>
+                
+                <div class="progress-bar" id="progressBar" style="display: none;">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Real-time Analytics -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">📊</span>
+                <span class="section-title">Real-time Analytics</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="repliesCount">0</div>
+                        <div class="stat-label">Replies Sent</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="successRate">100%</div>
+                        <div class="stat-label">Success Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="avgTime">0s</div>
+                        <div class="stat-label">Avg Time</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="dailyTarget">500</div>
+                        <div class="stat-label">Daily Target</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced Filters -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🔍</span>
+                <span class="section-title">Advanced Targeting Filters</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🎯</span>
+                        Target Engagement Level
+                    </div>
+                    <div class="control-description">Minimum likes/retweets for targeting high-engagement posts</div>
+                    <input type="range" class="range-input" id="minEngagement" min="0" max="10000" value="500">
+                    <div class="range-value" id="minEngagementValue">500+ likes</div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>👥</span>
+                        Author Requirements
+                    </div>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="verifiedOnly">
+                            <label for="verifiedOnly">Verified accounts only</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="influencersOnly">
+                            <label for="influencersOnly">Influencers (10K+ followers)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="businessAccounts">
+                            <label for="businessAccounts">Business accounts</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="activeUsers">
+                            <label for="activeUsers">Active users (posted in 24h)</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>📝</span>
+                        Content Filters
+                    </div>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="noRetweets">
+                            <label for="noRetweets">Skip retweets</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="englishOnly">
+                            <label for="englishOnly">English content only</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="noReplies">
+                            <label for="noReplies">Skip reply chains</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="originalContent">
+                            <label for="originalContent">Original content only</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🏷️</span>
+                        Keyword Targeting
+                    </div>
+                    <div class="control-description">Target posts containing specific keywords (comma-separated)</div>
+                    <textarea id="targetKeywords" placeholder="AI, technology, startup, marketing, growth..." rows="3"></textarea>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🚫</span>
+                        Blacklist Keywords
+                    </div>
+                    <div class="control-description">Avoid posts containing these keywords</div>
+                    <textarea id="blacklistKeywords" placeholder="spam, crypto, NFT, promotion..." rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Configuration -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🤖</span>
+                <span class="section-title">AI Response Engine</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🎭</span>
+                        Response Personality
+                    </div>
+                    <select id="responsePersonality">
+                        <option value="professional">Professional Expert</option>
+                        <option value="friendly">Friendly Enthusiast</option>
+                        <option value="analytical">Data-Driven Analyst</option>
+                        <option value="creative">Creative Innovator</option>
+                        <option value="supportive">Supportive Mentor</option>
+                        <option value="humorous">Witty Commentator</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>📏</span>
+                        Response Length
+                    </div>
+                    <input type="range" class="range-input" id="responseLength" min="50" max="280" value="150">
+                    <div class="range-value" id="responseLengthValue">150 characters</div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🎯</span>
+                        Engagement Strategy
+                    </div>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="askQuestions" checked>
+                            <label for="askQuestions">Ask engaging questions</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="shareExperience" checked>
+                            <label for="shareExperience">Share relevant experience</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="addValue" checked>
+                            <label for="addValue">Provide valuable insights</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="useEmojis">
+                            <label for="useEmojis">Include relevant emojis</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>⚡</span>
+                        Response Speed & Timing
+                    </div>
+                    <div class="control-description">Delay between finding post and sending reply (more human-like)</div>
+                    <input type="range" class="range-input" id="responseDelay" min="30" max="300" value="110">
+                    <div class="range-value" id="responseDelayValue">110 seconds</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Automation Settings -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">⚙️</span>
+                <span class="section-title">Advanced Automation</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>📈</span>
+                        Daily Targets
+                    </div>
+                    <input type="range" class="range-input" id="dailyTarget" min="10" max="1000" value="500">
+                    <div class="range-value" id="dailyTargetValue">500 replies per day</div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🕒</span>
+                        Operating Hours
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="font-size: 11px; opacity: 0.8;">Start Time</label>
+                            <input type="time" id="startTime" value="09:00">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; opacity: 0.8;">End Time</label>
+                            <input type="time" id="endTime" value="18:00">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>🎲</span>
+                        Randomization & Humanization
+                    </div>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="randomDelay" checked>
+                            <label for="randomDelay">Random response delays</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typingSimulation" checked>
+                            <label for="typingSimulation">Human typing simulation</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="occasionalLikes" checked>
+                            <label for="occasionalLikes">Occasional likes (10% chance)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="skipSometimes">
+                            <label for="skipSometimes">Skip posts randomly (15%)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Activity Monitor -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">📺</span>
+                <span class="section-title">Live Activity Monitor</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="activity-feed scrollbar-thin" id="activityFeed">
+                    <div class="activity-item">
+                        <div class="activity-icon info">🚀</div>
+                        <div class="activity-content">
+                            <div>System initialized and ready</div>
+                            <div class="activity-time">Just now</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Output -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">💻</span>
+                <span class="section-title">Real-time Console</span>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="console-output scrollbar-thin" id="consoleOutput">
+                    <div class="console-line info">
+                        <span class="console-timestamp">[00:00:00]</span>
+                        🚀 Post Ideas Helper Pro initialized
+                    </div>
+                    <div class="console-line success">
+                        <span class="console-timestamp">[00:00:01]</span>
+                        ✅ All systems operational
+                    </div>
+                    <div class="console-line info">
+                        <span class="console-timestamp">[00:00:02]</span>
+                        🔍 Waiting for user input...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

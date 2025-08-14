@@ -1,0 +1,30 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- BoldTake Icon - Lightning Bolt with Gradient -->
+  <defs>
+    <linearGradient id="boldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ff88;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#64ffda;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="64" cy="64" r="56" fill="#0a0e1a" stroke="url(#boldGradient)" stroke-width="4"/>
+  
+  <!-- Lightning Bolt -->
+  <path d="M45 25 L75 25 L55 64 L75 64 L45 103 L65 64 L45 64 Z" 
+        fill="url(#boldGradient)" 
+        filter="url(#glow)"
+        stroke="#ffffff" 
+        stroke-width="1"/>
+        
+  <!-- Small accent dots -->
+  <circle cx="85" cy="35" r="3" fill="#00ff88" opacity="0.8"/>
+  <circle cx="35" cy="85" r="2" fill="#64ffda" opacity="0.6"/>
+</svg>

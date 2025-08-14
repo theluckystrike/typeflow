@@ -1,0 +1,617 @@
+async function runOnceOnCurrentPage() {
+  if (BOLDTAKE_RUNNING) {
+    console.log('🔄 Extension already running, skipping...');
+    return;
+  }
+  
+  console.log('🚀 Starting Post Ideas Helper...');
+  
+  try {
+    const prefs = await chrome.storage.local.get({
+      xengager_query: 'min_faves:500 lang:en',
+      xengager_template: '1',
+      xengager_autoSend: false,
+      xengager_delayMin: 120,
+      xengager_delayMax: 300,
+      xengager_mode: 'auto',
+      xengager_target: 'search',
+      xengager_model: 'gpt-5',
+      xengager_autoChoose: true,
+      xengager_imperfections: true,
+      xengager_simulateTyping: true,
+      xengager_maxPerRun: 10
+    });
+    
+    const human = await chrome.storage.local.get({
+      xengager_likeEnabled: true,
+      xengager_likeChance: 25,
+      xengager_dwellMin: 8,
+      xengager_dwellMax: 20
+    });
+
+    console.log('📋 Loaded preferences:', { prefs, human });
+
+    if (!isOnX()) {
+      console.error('❌ Not on X.com/Twitter.com');
+      toast('Please navigate to X.com first');
+      return;
+    }
+    
+    BOLDTAKE_RUNNING = true;
+    BOLDTAKE_STOP = false;
+    ensureOverlay();
+    setStatus('Starting…');
+    console.log('✅ Extension initialized, navigating to target...');
+    
+    const startedAt = Date.now();
+    const manualFlow = !prefs.xengager_autoSend; // user will manually press Cmd/Ctrl+Enter
+    
+    // Work on whatever page the user is currently on - keep it simple!
+    console.log('📍 Working on current page:', location.href);
+    setStatus('Working on current page...');
+    
+    console.log('⏳ Waiting for page to load...');
+    setStatus('Loading page...');
+    await waitMs(1500);
+
+    const processed = new Set();
+    const maxReplies = Math.max(1, prefs.xengager_maxPerRun || 10); // safety cap per run
+    let made = 0;
+    
+    console.log(`☕ Starting 500-tweet daily engagement system`);
+    setStatus('☕ Running 24/7! Relax while we engage with 500 tweets today...');
+
+    // Add automatic restart and health monitoring
+    let consecutiveErrors = 0;
+    let lastSuccessTime = Date.now();
+    const maxConsecutiveErrors = 5;
+    const healthCheckInterval = 300000; // 5 minutes
+    
+    // Start health monitor
+    const healthMonitor = setInterval(() => {
+      const timeSinceLastSuccess = Date.now() - lastSuccessTime;
+      
+      if (timeSinceLastSuccess > healthCheckInterval && !BOLDTAKE_STOP) {
+        console.log('🏥 Health check: System seems stuck, attempting restart...');
+        setStatus('🔄 System restart - ensuring continuous operation...');
+        
+        // Reset error counters and continue
+        consecutiveErrors = 0;
+        lastSuccessTime = Date.now();
+        
+        // Scroll to refresh page content
+        window.scrollBy({ top: window.innerHeight, behavior: 'smooth' });
+      }
+    }, healthCheckInterval);
+
+    while (made < maxReplies && !BOLDTAKE_STOP) {
+      const tweets = getTweetNodes();
+      console.log(`📊 Found ${tweets.length} tweet nodes on page`);
+      
+      if (tweets.length === 0) {
+        console.warn('⚠️ No tweets found on page!');
+        setStatus('No tweets found - scrolling...');
+        window.scrollBy({ top: window.innerHeight * 0.5, behavior: 'smooth' });
+        await waitMs(3000);
+        continue;
+      }
+      
+      let progressed = false;
+      for (const article of tweets) {
+        if (BOLDTAKE_STOP) break;
+        
+        // Wrap each tweet processing in try-catch for error recovery
+        try {
+          // Only process visible articles to reduce flaky selectors
+          const rect = article.getBoundingClientRect();
+          if (rect.bottom < 0 || rect.top > window.innerHeight * 1.2) {
+            continue;
+          }
+          
+          const id = getTweetId(article) || `${tweets.indexOf(article)}-${Date.now()}`;
+          console.log(`🔍 Processing tweet ${id}`);
+          
+          if (processed.has(id)) {
+            console.log(`⏭️ Tweet ${id} already processed, skipping`);
+            continue;
+          }
+          
+          // Get author metadata
+          const meta = getAuthorMeta(article);
+          console.log(`👤 Author: @${meta.handle}, verified: ${meta.verified}`);
+          
+          // Apply filters with logging
+          if (prefs.xengager_requireVerified && !meta.verified) { 
+            console.log(`❌ Skipping ${id}: not verified`);
+            processed.add(id); 
+            continue; 
+          }
+        
+        if (Array.isArray(prefs.xengager_whitelist) && prefs.xengager_whitelist.length) {
+          const ok = prefs.xengager_whitelist.some(h => meta.handle.toLowerCase().includes(h.toLowerCase()));
+          if (!ok) { 
+            console.log(`❌ Skipping ${id}: not in whitelist`);
+            processed.add(id); 
+            continue; 
+          }
+        }
+        
+        if (Array.isArray(prefs.xengager_blacklist) && prefs.xengager_blacklist.length) {
+          const bad = prefs.xengager_blacklist.some(h => meta.handle.toLowerCase().includes(h.toLowerCase()));
+          if (bad) { 
+            console.log(`❌ Skipping ${id}: in blacklist`);
+            processed.add(id); 
+            continue; 
+          }
+        }
+        
+        if (isWithinQuietHours(prefs)) { 
+          console.log(`❌ Skipping ${id}: within quiet hours`);
+          processed.add(id); 
+          continue; 
+        }
+
+        // Check tweet content quality
+        const text = extractTextFromTweet(article);
+        console.log(`📝 Tweet text (${text.length} chars): ${text.slice(0, 100)}...`);
+        
+        if (!text) { 
+          console.log(`❌ Skipping ${id}: no text content`);
+          processed.add(id); 
+          continue; 
+        }
+        
+        if (!isContextRich(article, prefs)) { 
+          console.log(`❌ Skipping ${id}: not context-rich enough`);
+          processed.add(id); 
+          continue; 
+        }
+        
+        console.log(`✅ Tweet ${id} passed all filters, proceeding to reply...`);
+
+      // Step 1: Read for exactly 10 seconds
+      console.log(`📖 Reading post ${made + 1}/20 for 10 seconds...`);
+      setStatus(`☕ Reading post ${made + 1}/20 (10s)... Grab your coffee!`);
+      
+      for (let i = 10; i > 0; i--) {
+        if (BOLDTAKE_STOP) break;
+        setStatus(`☕ Reading post ${made + 1}/20 (${i}s remaining)...`);
+        await waitMs(1000);
+      }
+      
+      if (BOLDTAKE_STOP) break;
+
+      // Step 2: Open reply composer
+      setStatus('🔄 Opening reply...');
+      console.log('🔄 Opening reply composer...');
+      const composer = await openReplyComposer(article);
+      if (!composer) { 
+        console.log('❌ Failed to open reply composer');
+        processed.add(id); 
+        continue; 
+      }
+      
+      // Step 3: Generate ONE confident AI response
+      setStatus(`🤖 Generating the perfect reply for post ${made + 1}/500...`);
+      console.log('🤖 Generating ONE confident AI response...');
+
+      // Choose template decisively
+      let templateId = String(prefs.xengager_template);
+      if (prefs.xengager_autoChoose) {
+        console.log('🎯 Selecting the best template for this tweet...');
+        const res = await chrome.runtime.sendMessage({ type: 'XENGAGER_CHOOSE_PROMPT', payload: { text } });
+        if (res?.ok && res.templateId) {
+          templateId = String(res.templateId);
+          console.log(`✅ Selected template ${templateId} as the best match`);
+        }
+      }
+
+      console.log(`🤖 Generating ONE confident reply using template ${templateId}...`);
+      const replyRaw = await generateWithOpenAI(templateId, text, prefs).catch((e) => {
+        console.error('❌ OpenAI generation failed:', e);
+        setStatus('❌ AI generation failed, moving to next tweet...');
+        processed.add(id);
+        return null; // Return null instead of continue
+      });
+      
+      if (!replyRaw || !replyRaw.trim()) { 
+        console.log('❌ Empty reply generated, skipping tweet');
+        processed.add(id); 
+        continue; 
+      }
+
+      // Clean the response to ensure it's ONE confident reply
+      let reply = prefs.xengager_imperfections ? humanize(replyRaw) : replyRaw;
+      reply = reply.trim();
+      
+      // Remove any multiple response indicators
+      if (reply.includes('\n\n') || reply.includes('Option 1') || reply.includes('Here are')) {
+        console.log('⚠️ Multiple responses detected, taking first one only');
+        reply = reply.split('\n\n')[0].split('Option 1')[0].split('Here are')[0].trim();
+      }
+      
+      console.log(`✅ Final confident reply: "${reply.slice(0, 50)}..."`);
+      
+      // Ensure no duplicate content
+      if (!reply || reply.length < 10) {
+        console.log('❌ Reply too short or empty after cleaning, skipping tweet');
+        processed.add(id);
+        continue;
+      }
+      
+      console.log(`✅ Generated reply: "${reply}"`);
+      console.log(`📝 Original tweet: "${text}"`);
+      console.log(`🎯 Template used: ${templateId}`);
+      
+      updateDebug({
+        originalTweet: text.slice(0, 200),
+        chosenTemplate: templateId,
+        replyPreview: reply.slice(0, 200),
+        replyFull: reply
+      });
+      updateDebugPanel();
+
+      // Step 4: Type the response
+      setStatus(`⌨️ Typing brilliant response for post ${made + 1}/20...`);
+      console.log('⌨️ Starting to type response...');
+      setComposerText(composer, reply);
+      
+      // Wait for typing to complete
+      await waitMs(1000);
+      
+      // Step 5: 110-second approval window
+      console.log('⏳ 110 second approval window...');
+      for (let i = 110; i > 0; i--) {
+        if (BOLDTAKE_STOP) break;
+        setStatus(`☕ ${i}s to review reply for post ${made + 1}/20 (plenty of time to relax!)`);
+        await waitMs(1000);
+      }
+      
+      if (BOLDTAKE_STOP) break;
+      
+      // Step 6: Ensure button is ready, then send
+      setStatus(`🔍 Verifying reply button is ready for post ${made + 1}/20...`);
+      console.log('🔍 Checking if reply button is ready...');
+      
+      // Give extra time for button to activate if needed
+      let buttonReady = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const sendBtn = getReplyButtonFromComposer(composer);
+        const buttonActive = isReplyButtonEnabled(sendBtn);
+        console.log(`🔘 Send button check ${attempt + 1}/5: ${buttonActive}`);
+        
+        if (buttonActive) {
+          buttonReady = true;
+          break;
+        }
+        
+        // Try to reactivate the composer
+        console.log('🔄 Button not ready, trying to reactivate...');
+        composer.focus();
+        composer.click();
+        await waitMs(500);
+      }
+      
+      if (!buttonReady) {
+        console.log('❌ Reply button never became ready, skipping send');
+        setStatus(`⚠️ Reply button not ready for post ${made + 1}/20, moving to next...`);
+        processed.add(id);
+        continue;
+      }
+      
+      // Step 7: Send the reply
+      setStatus(`🚀 Sending reply for post ${made + 1}/20...`);
+      console.log('🚀 Reply button ready, sending reply...');
+      
+      // Final check before sending
+      const finalSendBtn = getReplyButtonFromComposer(composer);
+      const finalButtonActive = isReplyButtonEnabled(finalSendBtn);
+      
+      if (!finalButtonActive) {
+        console.log('⚠️ Final check: Send button not active, trying to activate...');
+        await activateComposer(composer);
+        await waitMs(300);
+      }
+      
+      // Step 7: Send the reply immediately
+      setStatus('📤 Sending reply...');
+      console.log('📤 Clicking send button...');
+      
+      const sent = await clickSend(composer, reply);
+      
+      if (sent) {
+        console.log('✅ Reply sent successfully!');
+        made++;
+        consecutiveErrors = 0; // Reset error counter on success
+        lastSuccessTime = Date.now(); // Update health check timestamp
+        setStatus(`☕ Reply ${made}/500 sent! System running smoothly...`);
+        toast(`☕ Reply ${made}/500 sent! Keep enjoying your coffee!`);
+      } else {
+        console.error('❌ Failed to send reply');
+        setStatus('❌ Send failed');
+        toast('❌ Send failed, moving to next tweet');
+        
+        // Close any open dialogs/composers
+        const closeBtn = document.querySelector('[aria-label="Close"], [data-testid="app-bar-close"]');
+        if (closeBtn) {
+          console.log('🔄 Closing reply dialog...');
+          closeBtn.click();
+          await waitMs(1000);
+        }
+      }
+      processed.add(id);
+      // Count as replied only if composer cleared/closed or reply detected
+      const stillHasText = composer && composer.isConnected && (composer.innerText || '').trim().length > 0;
+      if (!stillHasText || (await (async () => { const probe = reply.split(/\s+/).slice(0,8).join(' '); return Array.from(document.querySelectorAll('article')).some(a => (a.innerText||'').includes(probe)); })())) {
+        made += 1;
+        setStatus(`Replied ${made}/${maxReplies}`);
+      } else {
+        setStatus('Skipped send');
+      }
+      progressed = true;
+      
+      } catch (error) {
+        // Error recovery mechanism
+        console.error('❌ Error processing tweet:', error);
+        consecutiveErrors++;
+        
+        updateDebug({
+          error: error.message,
+          stack: error.stack,
+          timestamp: new Date().toISOString(),
+          consecutiveErrors: consecutiveErrors
+        });
+        
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.log('🔄 Too many consecutive errors, restarting system...');
+          setStatus('🔄 Auto-restart: Ensuring continuous operation...');
+          toast('🔄 System restart - keeping things running smoothly!');
+          
+          // Reset and continue
+          consecutiveErrors = 0;
+          processed.clear(); // Clear processed tweets to allow retry
+          
+          // Scroll to get fresh content
+          window.scrollBy({ top: window.innerHeight * 2, behavior: 'smooth' });
+          await waitMs(5000); // Brief pause before continuing
+          
+          lastSuccessTime = Date.now(); // Reset health timer
+        } else {
+          // Single error - just log and continue
+          setStatus(`⚠️ Minor issue (${consecutiveErrors}/5) - continuing...`);
+          await waitMs(2000);
+        }
+        
+        // Skip this tweet and continue
+        if (id) processed.add(id);
+        continue;
+      }
+      
+      // Optional occasional like to humanize
+      if (human.xengager_likeEnabled && Math.random() * 100 < (human.xengager_likeChance || 0)) {
+        const likeBtn = article.querySelector('div[data-testid="like"]');
+        if (likeBtn) { 
+          console.log('❤️ Liking tweet occasionally...');
+          likeBtn.click(); 
+          await waitMs(800 + Math.random() * 1200); 
+        }
+      }
+      
+      // Slower tempo between tweets (30-60 seconds)
+      const betweenTweetDelay = 30000 + Math.random() * 30000; // 30-60 seconds
+      console.log(`⏳ Waiting ${Math.round(betweenTweetDelay/1000)}s before next tweet...`);
+      setStatus(`Waiting ${Math.round(betweenTweetDelay/1000)}s before next tweet...`);
+      
+      for (let i = 0; i < betweenTweetDelay/1000; i++) {
+        if (BOLDTAKE_STOP) break;
+        await waitMs(1000);
+        if (i % 10 === 0) { // Update status every 10 seconds
+          setStatus(`Next tweet in ${Math.round((betweenTweetDelay/1000) - i)}s...`);
+        }
+      }
+      
+      if (made >= maxReplies) break;
+    }
+
+    if (made >= maxReplies || BOLDTAKE_STOP) break;
+    if (!progressed) {
+      // Scroll to load more more slowly
+      window.scrollBy({ top: window.innerHeight * 0.5, behavior: 'smooth' });
+      await waitMs(2600 + Math.random() * 1200);
+    }
+    }
+    
+    console.log(`🏁 Finished processing. Made ${made} replies out of ${maxReplies} max.`);
+    setStatus('Completed!');
+    toast(`Completed! Made ${made} replies.`);
+    
+  } catch (error) {
+    console.error('💥 Extension error:', error);
+    setStatus('Error occurred');
+    toast(`Error: ${error.message}`);
+    updateDebug({ 
+      error: error.message, 
+      stack: error.stack?.slice(0, 500),
+      timestamp: new Date().toISOString()
+    });
+    updateDebugPanel();
+  } finally {
+    // Clean up health monitor
+    if (typeof healthMonitor !== 'undefined') {
+      clearInterval(healthMonitor);
+    }
+    
+    setTimeout(() => {
+      if (made >= (prefs.xengager_maxPerRun || 500)) {
+        setStatus(`🎉 Daily goal achieved! ${made}/500 tweets completed! ☕`);
+        toast(`🎉 Amazing! Engaged with ${made} tweets today! ☕`);
+      } else {
+        setStatus('☕ Ready to resume anytime!');
+      }
+      BOLDTAKE_RUNNING = false;
+    }, 3000);
+  }
+}
+
+function randomInRange(a, b) {
+  const min = Math.min(a || 0, b || 0);
+  const max = Math.max(a || 0, b || 0);
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function humanize(text) {
+  // Small imperfections: drop terminal punctuation sometimes, add micro typos occasionally
+  let t = text;
+  const lines = t.split(/\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let l = lines[i];
+    if (Math.random() < 0.15) {
+      l = l.replace(/[\.!?]+$/, ''); // delete question or punctuation sometimes
+    }
+    if (Math.random() < 0.1) {
+      // simple swap typo within a word with length > 4
+      l = l.replace(/(\w{2,})(\w)(\w)(\w{2,})/, (m, a, b, c, d) => a + c + b + d);
+    }
+    lines[i] = l;
+  }
+  t = lines.join('\n');
+  // Keep forbidden punctuation rule by removing accidental insertions
+  t = t.replace(/[\-—:;]+/g, '');
+  return t.trim();
+}
+
+async function typeIntoComposer(composer, text) {
+  composer.focus();
+  document.execCommand('selectAll', false, undefined);
+  document.execCommand('delete', false, undefined);
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(composer);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  // compositionstart to better mimic human typing
+  composer.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, cancelable: true, data: '' }));
+  for (const ch of text) {
+    const before = new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(before);
+    composer.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, cancelable: true, data: ch }));
+    const input = new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(input);
+    document.execCommand('insertText', false, ch);
+    await sleep(20 + Math.random() * 60);
+  }
+  composer.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, cancelable: true, data: '' }));
+  // Activate reply button state
+  activateComposer(composer);
+}
+
+async function typeIntoComposerWithTargetMs(composer, text, targetMs) {
+  composer.focus();
+  document.execCommand('selectAll', false, undefined);
+  document.execCommand('delete', false, undefined);
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(composer);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const chars = Array.from(text);
+  const baseDelay = Math.max(10, Math.floor(targetMs / Math.max(1, chars.length)));
+  const jitter = Math.max(4, Math.floor(baseDelay * 0.25));
+  const start = performance.now();
+  composer.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, cancelable: true, data: '' }));
+  for (const ch of chars) {
+    const before = new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(before);
+    composer.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, cancelable: true, data: ch }));
+    const input = new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(input);
+    document.execCommand('insertText', false, ch);
+    await sleep(baseDelay + Math.floor(Math.random() * jitter));
+    if (BOLDTAKE_STOP) break;
+  }
+  composer.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, cancelable: true, data: '' }));
+  const elapsed = performance.now() - start;
+  if (elapsed < targetMs && !BOLDTAKE_STOP) {
+    await sleep(targetMs - elapsed);
+  }
+  activateComposer(composer);
+}
+
+async function activateComposer(composer) {
+  if (!composer || !composer.isConnected) return;
+  
+  console.log('🔧 Final composer activation check...');
+  
+  // Since we're using real keyboard events, the button should already be active
+  // Just ensure focus and cursor position are correct
+  composer.focus();
+  
+  // Position cursor at end of text
+  const currentText = composer.textContent || composer.innerText || '';
+  if (currentText.trim()) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    
+    if (composer.firstChild && composer.firstChild.nodeType === Node.TEXT_NODE) {
+      range.setStart(composer.firstChild, currentText.length);
+      range.setEnd(composer.firstChild, currentText.length);
+    } else {
+      range.selectNodeContents(composer);
+      range.collapse(false);
+    }
+    
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    console.log('✅ Cursor positioned at end, button should be active');
+  } else {
+    console.warn('⚠️ No text found in composer after keyboard typing');
+  }
+}
+
+async function ensureComposerActivated(composer) {
+  if (!composer || !composer.isConnected) return;
+  try { composer.focus(); } catch {}
+  // Move caret around a bit
+  const arrowArgs = { key: 'ArrowRight', code: 'ArrowRight', bubbles: true };
+  composer.dispatchEvent(new KeyboardEvent('keydown', arrowArgs));
+  composer.dispatchEvent(new KeyboardEvent('keyup', arrowArgs));
+  const arrowLeft = { key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true };
+  composer.dispatchEvent(new KeyboardEvent('keydown', arrowLeft));
+  composer.dispatchEvent(new KeyboardEvent('keyup', arrowLeft));
+  // Trigger space/backspace sequence
+  activateComposer(composer);
+  await waitMs(120);
+  // Blur/refocus to force React state sync
+  try { composer.blur(); } catch {}
+  await waitMs(60);
+  try { composer.focus(); } catch {}
+}
+
+function getAuthorMeta(article) {
+  const handleEl = article.querySelector('a[href^="/"] div span');
+  const handle = handleEl?.textContent?.trim() || '';
+  const verified = !!article.querySelector('svg[aria-label="Verified account"]');
+  // Followers count not available in list; skip unless on profile hover. We'll approximate by requiring verified when set, else pass.
+  return { handle, verified, protected: false, followers: null };
+}
+
+function isWithinQuietHours(prefs) {
+  if (!prefs.xengager_quietEnable) return false;
+  const now = new Date();
+  const [qsH, qsM] = String(prefs.xengager_quietStart || '22:00').split(':').map(Number);
+  const [qeH, qeM] = String(prefs.xengager_quietEnd || '07:00').split(':').map(Number);
+  const start = new Date(now); start.setHours(qsH, qsM, 0, 0);
+  const end = new Date(now); end.setHours(qeH, qeM, 0, 0);
+  if (start <= end) {
+    return now >= start && now <= end;
+  } else {
+    // crosses midnight
+    return now >= start || now <= end;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'XENGAGER_START') {

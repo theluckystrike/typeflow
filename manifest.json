@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "BoldTake Professional",
+  "version": "2.0.0",
+  "description": "Professional AI-powered X.com automation with intelligent engagement",
+  
+  "action": {
+    "default_title": "BoldTake Professional",
+    "default_popup": "popup.html"
+  },
+  
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

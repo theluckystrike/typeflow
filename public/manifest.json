@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Typeflow: Transform text on any site in seconds",
+  "description": "Highlight text, press a shortcut, paste perfection. AI writing enhancement for any site - paraphrase, translate, improve.",
+  "version": "1.4.0",
+  "homepage_url": "https://typeflow.today",
+  "icons": {
+    "16": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "logo.png",
+      "48": "logo.png",
+      "128": "logo.png"
+    },
+    "default_title": "Typeflow Writing Assistant"
+  },
+  "content_scripts": [
+    {
+      "all_frames": false,
+      "matches": ["<all_urls>"],
+      "js": ["js/vendor.js", "js/content_script.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["js/indicator.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "js/background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "scripting",
+    "sidePanel",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://backend.belikenative.com/*",
+    "https://api.openai.com/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://backend.belikenative.com https://typeflow.today https://api.openai.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:;"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["js/*", "*.png", "*.svg"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "042258a4-269b-4350-b3c3-c7f3cb588f6c",
+      "strict_min_version": "58.0"
+    }
+  }
+}

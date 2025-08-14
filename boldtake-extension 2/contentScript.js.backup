@@ -1,0 +1,2043 @@
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function waitMs(ms) {
+  const step = 150;
+  let elapsed = 0;
+  while (elapsed < ms) {
+    if (BOLDTAKE_STOP) break;
+    await sleep(step);
+    elapsed += step;
+  }
+}
+function isMac() { return navigator.platform.toLowerCase().includes('mac'); }
+let BOLDTAKE_RUNNING = false;
+let BOLDTAKE_STOP = false;
+let overlayRoot = null;
+let overlayDebug = null;
+let lastDebugInfo = {};
+let NARRATE = true;
+function ensureOverlay() {
+  if (overlayRoot) return;
+  overlayRoot = document.createElement('div');
+  overlayRoot.style.cssText = 'position:fixed;top:10px;right:10px;z-index:2147483647;background:#000;color:#fff;padding:8px 10px;border-radius:8px;font:12px system-ui;display:flex;gap:8px;align-items:center;opacity:0.92;box-shadow:0 2px 12px rgba(0,0,0,.4)';
+  const text = document.createElement('span');
+  text.id = 'boldtake-status-text';
+  const btn = document.createElement('button');
+  btn.textContent = 'Stop';
+  btn.style.cssText = 'background:#ff4d4f;border:none;color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer;';
+  btn.onclick = () => { BOLDTAKE_STOP = true; setStatus('Stopping…'); };
+  const dbg = document.createElement('button');
+  dbg.textContent = 'Debug';
+  dbg.style.cssText = 'background:#555;border:none;color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer;';
+  dbg.onclick = () => {
+    if (!overlayDebug) return;
+    overlayDebug.style.display = overlayDebug.style.display === 'none' ? 'block' : 'none';
+    if (overlayDebug.style.display === 'block') updateDebugPanel();
+  };
+  overlayRoot.appendChild(text);
+  overlayRoot.appendChild(dbg);
+  overlayRoot.appendChild(btn);
+  document.body.appendChild(overlayRoot);
+
+  overlayDebug = document.createElement('div');
+  overlayDebug.style.cssText = 'position:fixed;top:54px;right:10px;z-index:2147483647;background:rgba(0,0,0,.92);color:#0f0;padding:8px 10px;border-radius:8px;font:11px monospace;max-width:380px;max-height:40vh;overflow:auto;display:none;white-space:pre-wrap;';
+  overlayDebug.id = 'boldtake-debug';
+  document.body.appendChild(overlayDebug);
+
+  // Toast container (bottom-left)
+  if (!document.getElementById('boldtake-toasts')) {
+    const tc = document.createElement('div');
+    tc.id = 'boldtake-toasts';
+    tc.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(tc);
+  }
+}
+function setStatus(message) {
+  const el = document.getElementById('boldtake-status-text');
+  if (el) el.textContent = message;
+}
+
+function updateDebug(info) {
+  lastDebugInfo = { ...(lastDebugInfo||{}), ...(info||{}) };
+}
+
+function updateDebugPanel() {
+  if (!overlayDebug) return;
+  const dbg = {
+    status: document.getElementById('boldtake-status-text')?.textContent || '',
+    ...lastDebugInfo
+  };
+  const pretty = JSON.stringify(dbg, (k, v) => typeof v === 'string' && v.length > 600 ? v.slice(0, 600) + '…' : v, 2);
+  overlayDebug.textContent = pretty;
+}
+
+function toast(message) {
+  if (!NARRATE) return;
+  const host = document.getElementById('boldtake-toasts');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.textContent = message;
+  el.style.cssText = 'background:#0f1419;color:#fff;padding:8px 10px;border-radius:10px;font:12px system-ui;box-shadow:0 2px 12px rgba(0,0,0,.35);opacity:0.96;max-width:320px;';
+  host.appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .25s ease, transform .25s ease'; el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, 2200);
+  setTimeout(() => { el.remove(); }, 2600);
+}
+
+function isOnX() {
+  return location.hostname.includes('twitter.com') || location.hostname.includes('x.com');
+}
+
+async function ensureOnSearch(query) {
+  console.log(`🔍 ensureOnSearch called with query: "${query}"`);
+  
+  if (!query || query.trim() === '') {
+    console.error('❌ No search query provided, using default');
+    query = 'min_faves:500 lang:en';
+  }
+  
+  const url = new URL(location.href);
+  const isSearch = url.pathname.startsWith('/search');
+  const q = `q=${encodeURIComponent(query.trim())}`;
+  const targetUrl = `https://${location.hostname}/search?${q}&src=typed_query&f=live`;
+  
+  console.log(`📍 Current URL: ${location.href}`);
+  console.log(`🎯 Target URL: ${targetUrl}`);
+  console.log(`🔍 Is on search page: ${isSearch}`);
+  console.log(`🔍 URL contains query: ${url.search.includes(q)}`);
+  
+  if (!isSearch || !url.search.includes(q)) {
+    console.log('🚀 Need to navigate to search page...');
+    console.log('💾 Storing automation state before navigation...');
+    
+    // Store the fact that we want to continue automation after navigation
+    await chrome.storage.local.set({
+      'xengager_continue_after_nav': true,
+      'xengager_nav_timestamp': Date.now()
+    });
+    
+    toast(`Navigating to search: ${query}`);
+    
+    // Navigate to search page
+    location.href = targetUrl;
+    
+    // The page will reload, so execution stops here
+    // The continuation will be handled by the message listener
+    return;
+  } else {
+    console.log('✅ Already on correct search page');
+  }
+}
+
+async function ensureOnHome() {
+  if (!/^\/(home|)$/.test(location.pathname)) {
+    location.href = `https://${location.hostname}/home`;
+    await new Promise(resolve => {
+      const i = setInterval(() => {
+        if (document.readyState === 'complete') { clearInterval(i); resolve(); }
+      }, 300);
+    });
+  }
+}
+
+function getTweetNodes() {
+  // Enhanced selectors for tweets across different X.com pages
+  const selectors = [
+    'article[data-testid="tweet"]',           // Standard tweets
+    'article[role="article"]',                // Alternative article selector
+    'div[data-testid="tweet"]',               // Sometimes tweets use div
+    '[data-testid="tweetText"]',              // Tweet text containers
+  ];
+  
+  let tweets = [];
+  for (const selector of selectors) {
+    const elements = Array.from(document.querySelectorAll(selector));
+    if (elements.length > 0) {
+      // For tweet text containers, find parent articles
+      if (selector.includes('tweetText')) {
+        tweets = elements.map(el => el.closest('article')).filter(Boolean);
+      } else {
+        tweets = elements;
+      }
+      break; // Use first selector that finds tweets
+    }
+  }
+  
+  // Filter out duplicate tweets and ensure they have content
+  const uniqueTweets = tweets.filter((tweet, index, arr) => {
+    if (!tweet || !tweet.isConnected) return false;
+    
+    // Check for duplicate by position or content
+    const rect = tweet.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    
+    // Ensure tweet has text content
+    const hasText = tweet.querySelector('div[lang], [data-testid="tweetText"]');
+    if (!hasText) return false;
+    
+    // Remove duplicates by checking if same position
+    const isDuplicate = arr.slice(0, index).some(prevTweet => {
+      const prevRect = prevTweet.getBoundingClientRect();
+      return Math.abs(rect.top - prevRect.top) < 10 && Math.abs(rect.left - prevRect.left) < 10;
+    });
+    
+    return !isDuplicate;
+  });
+  
+  console.log(`🔍 getTweetNodes found ${uniqueTweets.length} unique tweets (from ${tweets.length} raw elements)`);
+  return uniqueTweets;
+}
+
+function extractTextFromTweet(article) {
+  // Ignore media-only tweets: must have meaningful text
+  const textEl = article.querySelector('div[lang]');
+  const text = textEl?.innerText?.trim() || '';
+  return text.length >= 10 ? text : '';
+}
+
+function queryComposer() {
+  // Prefer dialog-scoped composer
+  const dialog = document.querySelector('div[role="dialog"]') || document;
+  return (
+    dialog.querySelector('div[aria-label="Tweet text"] div[contenteditable="true"]') ||
+    dialog.querySelector('div[aria-label="Post text"] div[contenteditable="true"]') ||
+    dialog.querySelector('div[data-testid="tweetTextarea_0"] div[contenteditable="true"]') ||
+    dialog.querySelector('div[role="textbox"][data-testid="tweetTextarea_0"]') ||
+    dialog.querySelector('div[role="textbox"][contenteditable="true"]') ||
+    document.querySelector('div[data-testid="tweetTextarea_0"] div[contenteditable="true"]') ||
+    document.querySelector('div[aria-label="Post text"] div[contenteditable="true"]') ||
+    document.querySelector('div[role="textbox"][contenteditable="true"]')
+  );
+}
+
+function queryReplyButton(article) {
+  return (
+    article.querySelector('button[data-testid="reply"]') ||
+    article.querySelector('div[data-testid="reply"]') ||
+    article.querySelector('button[aria-label^="Reply"]')
+  );
+}
+
+async function openReplyComposer(article) {
+  const replyBtn = queryReplyButton(article);
+  if (!replyBtn) return null;
+  replyBtn.click();
+  // Try to find an inline composer under this article first
+  for (let i = 0; i < 80; i++) {
+    const inline = article.parentElement?.querySelector('div[data-testid="tweetTextarea_0"] div[contenteditable="true"]');
+    if (inline) return inline;
+    const composer = queryComposer();
+    if (composer) return composer;
+    await waitMs(150);
+  }
+  return null;
+}
+
+function setComposerText(composer, text) {
+  console.log('🎯 setComposerText called with text:', `"${text}"`);
+  console.log('📏 Text length:', text.length);
+  
+  // Check if composer already has the exact same content (prevent exact duplicates only)
+  const existingContent = (composer.textContent || composer.innerText || '').trim();
+  if (existingContent === text.trim() && existingContent.length > 10) {
+    console.log('✅ Exact same text already present, skipping duplicate typing');
+    return;
+  }
+  
+  console.log('🎯 Proceeding to type text into composer...');
+  
+  // Enforce 280 character limit for X
+  if (text.length > 280) {
+    text = text.substring(0, 277) + '...';
+    console.log('⚠️ Text truncated to 280 characters for X limit');
+    console.log('✂️ Truncated text:', `"${text}"`);
+  }
+  
+  // CRITICAL: X.com requires very specific sequence to activate React state
+  composer.focus();
+  
+  // Method 1: Simulate real user typing to trigger React properly - ONCE ONLY
+  console.log('🎯 Starting ONE confident response typing...');
+  simulateRealUserInput(composer, text);
+}
+
+async function simulateRealUserInput(composer, text) {
+  console.log('⌨️ simulateRealUserInput called with text:', `"${text}"`);
+  console.log('📝 About to type:', text.length, 'characters');
+  
+  // Step 1: Ensure composer is focused and ready
+  composer.focus();
+  await waitMs(100);
+  
+  // Step 2: Clear any existing content by selecting all and deleting
+  console.log('🧹 Clearing existing content...');
+  selectAllAndDelete(composer);
+  await waitMs(50);
+  
+  // Verify composer is empty
+  const existingContent = composer.textContent || composer.innerText || '';
+  console.log('🔍 Content after clearing:', `"${existingContent}"`);
+  
+  // Step 3: Type each character using REAL keyboard events
+  // This is what X.com actually listens for!
+  console.log(`⌨️ Starting to type ${text.length} characters...`);
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    console.log(`⌨️ Typing character ${i + 1}/${text.length}: "${char}"`);
+    
+    await typeCharacterWithKeyboard(composer, char);
+    
+    // Verify character was inserted
+    const currentContent = composer.textContent || composer.innerText || '';
+    console.log(`📝 Composer content after char ${i + 1}: "${currentContent}"`);
+    
+    // Slightly faster human typing speed with realistic pauses
+    let delay = 60 + Math.random() * 80; // Base: 60-140ms per character (faster)
+    
+    // Longer pauses after punctuation (like humans do)
+    if (char.match(/[.!?]/)) {
+      delay += 150 + Math.random() * 250; // Extra 150-400ms after sentences
+    } else if (char === ' ') {
+      delay += 30 + Math.random() * 70; // Extra 30-100ms between words
+    } else if (char === ',') {
+      delay += 80 + Math.random() * 120; // Extra 80-200ms after commas
+    }
+    
+    await waitMs(delay);
+    
+    // Check if button is already active after first few characters
+    if (i === 0) {
+      console.log('🔍 Checking if button activated after first character...');
+      const btn = getReplyButtonFromComposer(composer);
+      if (isReplyButtonEnabled(btn)) {
+        console.log('✅ Button activated after first character! Continuing...');
+      } else {
+        console.log('⚠️ Button not yet activated after first character');
+      }
+    }
+  }
+  
+  // Final verification
+  const finalContent = composer.textContent || composer.innerText || '';
+  console.log('✅ Typing completed. Final content:', `"${finalContent}"`);
+  console.log('🔍 Expected vs Actual:', {
+    expected: text,
+    actual: finalContent,
+    match: text === finalContent
+  });
+}
+
+async function selectAllAndDelete(composer) {
+  composer.focus();
+  
+  // Send Ctrl+A (or Cmd+A on Mac) to select all
+  const selectAllKey = isMac() ? 'metaKey' : 'ctrlKey';
+  const selectAllEvent = new KeyboardEvent('keydown', {
+    key: 'a',
+    code: 'KeyA',
+    [selectAllKey]: true,
+    bubbles: true,
+    cancelable: true
+  });
+  composer.dispatchEvent(selectAllEvent);
+  
+  await waitMs(10);
+  
+  // Send Delete key to clear content
+  const deleteEvent = new KeyboardEvent('keydown', {
+    key: 'Delete',
+    code: 'Delete',
+    bubbles: true,
+    cancelable: true
+  });
+  composer.dispatchEvent(deleteEvent);
+  
+  await waitMs(10);
+}
+
+async function typeCharacterWithKeyboard(composer, char) {
+  // This simulates exactly what happens when you press a key on your keyboard
+  const keyCode = char.charCodeAt(0);
+  const key = char;
+  const code = getKeyCode(char);
+  
+  // Step 1: keydown event
+  const keydownEvent = new KeyboardEvent('keydown', {
+    key: key,
+    code: code,
+    keyCode: keyCode,
+    which: keyCode,
+    charCode: 0,
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  });
+  composer.dispatchEvent(keydownEvent);
+  
+  // Step 2: keypress event (for character keys)
+  if (char.match(/[a-zA-Z0-9\s.,!?'"]/)) {
+    const keypressEvent = new KeyboardEvent('keypress', {
+      key: key,
+      code: code,
+      keyCode: keyCode,
+      which: keyCode,
+      charCode: keyCode,
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    });
+    composer.dispatchEvent(keypressEvent);
+  }
+  
+  // Step 3: beforeinput event (modern browsers)
+  const beforeInputEvent = new InputEvent('beforeinput', {
+    inputType: 'insertText',
+    data: char,
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  });
+  composer.dispatchEvent(beforeInputEvent);
+  
+  // Step 4: Actually insert the character (this is what makes it appear)
+  document.execCommand('insertText', false, char);
+  
+  // Step 5: input event (after character is inserted)
+  const inputEvent = new InputEvent('input', {
+    inputType: 'insertText',
+    data: char,
+    bubbles: true,
+    cancelable: false,
+    composed: true
+  });
+  composer.dispatchEvent(inputEvent);
+  
+  // Step 6: keyup event
+  const keyupEvent = new KeyboardEvent('keyup', {
+    key: key,
+    code: code,
+    keyCode: keyCode,
+    which: keyCode,
+    charCode: 0,
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  });
+  composer.dispatchEvent(keyupEvent);
+}
+
+function getKeyCode(char) {
+  // Convert character to proper key code
+  if (char === ' ') return 'Space';
+  if (char === '.') return 'Period';
+  if (char === ',') return 'Comma';
+  if (char === '!') return 'Digit1'; // Shift+1
+  if (char === '?') return 'Slash'; // Shift+/
+  if (char === "'") return 'Quote';
+  if (char === '"') return 'Quote'; // Shift+'
+  if (char.match(/[a-zA-Z]/)) return `Key${char.toUpperCase()}`;
+  if (char.match(/[0-9]/)) return `Digit${char}`;
+  return 'Unknown';
+}
+
+function triggerReactStateUpdate(composer) {
+  console.log('⚛️ Triggering React state update');
+  
+  // Method 1: Dispatch React-specific events
+  const reactEvents = [
+    'input',
+    'change',
+    'keyup',
+    'focusin',
+    'focusout'
+  ];
+  
+  reactEvents.forEach(eventType => {
+    composer.dispatchEvent(new Event(eventType, { 
+      bubbles: true, 
+      cancelable: true 
+    }));
+  });
+  
+  // Method 2: Try to trigger React's internal event system
+  // X.com uses React 18, which has specific event handling
+  const nativeInputEvent = new Event('input', { bubbles: true });
+  nativeInputEvent.simulated = false; // Make it look like a real event
+  composer.dispatchEvent(nativeInputEvent);
+  
+  // Method 3: Force cursor movement to wake up React
+  const selection = window.getSelection();
+  const range = document.createRange();
+  
+  if (composer.firstChild) {
+    range.setStart(composer.firstChild, composer.textContent.length);
+    range.setEnd(composer.firstChild, composer.textContent.length);
+  } else {
+    range.selectNodeContents(composer);
+    range.collapse(false);
+  }
+  
+  selection.removeAllRanges();
+  selection.addRange(range);
+  
+  // Method 4: Simulate key events that React listens for
+  const keyEvents = [
+    { type: 'keydown', key: 'End', code: 'End' },
+    { type: 'keyup', key: 'End', code: 'End' }
+  ];
+  
+  keyEvents.forEach(({ type, key, code }) => {
+    composer.dispatchEvent(new KeyboardEvent(type, {
+      key,
+      code,
+      bubbles: true,
+      cancelable: true
+    }));
+  });
+  
+  console.log('⚛️ React state update triggers completed');
+}
+
+function isDisabled(el) {
+  if (!el) return true;
+  
+  // Check standard disabled attributes
+  const aria = el.getAttribute('aria-disabled');
+  if (aria === 'true') return true;
+  if (el.hasAttribute('disabled')) return true;
+  
+  // Check computed styles
+  const style = window.getComputedStyle(el);
+  if (style.pointerEvents === 'none') return true;
+  
+  // X.com specific: Check for gray/disabled styling
+  const bgColor = style.backgroundColor;
+  const color = style.color;
+  
+  // Common disabled button colors on X.com
+  if (bgColor.includes('rgb(15, 20, 25)') || // Dark disabled
+      bgColor.includes('rgb(83, 100, 113)') || // Gray disabled
+      bgColor.includes('rgba(15, 20, 25, 0.75)') || // Semi-transparent disabled
+      color.includes('rgb(83, 100, 113)')) { // Gray text
+    return true;
+  }
+  
+  // Check opacity (but be more specific)
+  const opacity = parseFloat(style.opacity);
+  if (opacity < 0.6) return true;
+  
+  // Check if button has enabled styling (X blue background)
+  if (bgColor.includes('rgb(29, 155, 240)') || // X blue
+      bgColor.includes('rgb(26, 140, 216)')) { // X blue hover
+    return false;
+  }
+  
+  // Additional check: if button contains text but looks visually disabled
+  const hasText = el.textContent && el.textContent.trim().length > 0;
+  const rect = el.getBoundingClientRect();
+  const isVisible = rect.width > 0 && rect.height > 0;
+  
+  if (hasText && isVisible && opacity > 0.6) {
+    return false; // Likely enabled
+  }
+  
+  return false; // Default to enabled if we can't determine
+}
+
+function findReplyButton(scope) {
+  // First, prefer buttons inside the composer toolbar when present
+  const toolBar = scope.querySelector('[data-testid="toolBar"]');
+  const scoped = toolBar || scope;
+  
+  // Enhanced selectors for X.com's latest button structures
+  const candidates = [
+    ...scoped.querySelectorAll('button[data-testid="tweetButtonInline"]'),
+    ...scoped.querySelectorAll('div[data-testid="tweetButtonInline"]'),
+    ...scoped.querySelectorAll('button[data-testid="tweetButton"]'),
+    ...scoped.querySelectorAll('div[data-testid="tweetButton"]'),
+    ...scoped.querySelectorAll('button[aria-label^="Reply"]'),
+    ...scoped.querySelectorAll('button[aria-label^="Post"]'),
+    // Additional selectors for newer X.com structures
+    ...scoped.querySelectorAll('button[aria-label*="reply"]'),
+    ...scoped.querySelectorAll('button[aria-label*="Post reply"]'),
+    ...scoped.querySelectorAll('div[role="button"][aria-label*="reply"]'),
+    ...scoped.querySelectorAll('div[role="button"][aria-label*="Post"]'),
+    // CSS-based selectors for buttons with specific styling
+    ...scoped.querySelectorAll('button[style*="background-color: rgb(29, 155, 240)"]'), // X blue
+    ...scoped.querySelectorAll('div[role="button"][style*="background-color: rgb(29, 155, 240)"]')
+  ];
+  
+  // Filter for visible and enabled buttons
+  const visible = candidates.filter(b => {
+    const rect = b.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && (b.offsetParent || b.getClientRects().length);
+  });
+  
+  // Prefer enabled buttons, but fall back to any visible button
+  const enabled = visible.filter(b => !isDisabled(b));
+  if (enabled.length) return enabled[0];
+  if (visible.length) return visible[0];
+  
+  // Explicit text match on nested span: "Reply" or "Post"
+  const textMatches = ['reply', 'post', 'tweet'];
+  for (const text of textMatches) {
+    const span = Array.from(scoped.querySelectorAll('span')).find(s => 
+      (s.textContent || '').trim().toLowerCase() === text
+    );
+    if (span) {
+      const btn = span.closest('button, div[role="button"]');
+      if (btn && !isDisabled(btn)) return btn;
+    }
+  }
+  
+  // Next, try outside toolbar but nearby
+  const nearby = [
+    ...scope.querySelectorAll('button[data-testid="tweetButtonInline"], div[data-testid="tweetButtonInline"], button[data-testid="tweetButton"], div[data-testid="tweetButton"]')
+  ];
+  const nearVisible = nearby.filter(b => (b.offsetParent || b.getClientRects().length));
+  if (nearVisible.length) return nearVisible.find(b => !isDisabled(b)) || nearVisible[0];
+  
+  // Fallback: any button/div role=button whose visible text contains reply/post
+  const allBtns = Array.from(scope.querySelectorAll('button, div[role="button"]'));
+  const byText = allBtns.find(b => /\b(reply|post|tweet)\b/i.test((b.textContent || '').trim()));
+  return byText || null;
+}
+
+function mouseClick(el) {
+  if (!(el instanceof HTMLElement)) return;
+  
+  // Get element position for realistic click coordinates
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  
+  // Comprehensive mouse event sequence with proper coordinates
+  const events = [
+    'pointerover',
+    'pointerenter', 
+    'mouseover',
+    'mouseenter',
+    'pointermove',
+    'mousemove',
+    'pointerdown',
+    'mousedown',
+    'focus',
+    'pointerup',
+    'mouseup',
+    'click'
+  ];
+  
+  for (const type of events) {
+    const event = new MouseEvent(type, { 
+      bubbles: true, 
+      cancelable: true, 
+      view: window,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y,
+      button: 0,
+      buttons: type.includes('down') ? 1 : 0
+    });
+    el.dispatchEvent(event);
+  }
+  
+  // Also try direct click as fallback
+  try {
+    el.click();
+  } catch (e) {
+    console.warn('Direct click failed:', e);
+  }
+}
+
+async function clickSend(composer, replyText) {
+  console.log('🚀 TRIPLE-REDUNDANT SEND FUNCTION - Starting...');
+  console.log('🔍 Composer element:', composer);
+  console.log('📝 Reply text to send:', `"${replyText}"`);
+  
+  if (!composer || !composer.isConnected) {
+    console.error('❌ CRITICAL: No composer found or disconnected');
+    return false;
+  }
+  
+  // Check composer text with multiple methods
+  const composerText1 = composer.innerText?.trim() || '';
+  const composerText2 = composer.textContent?.trim() || '';
+  const composerText3 = composer.value?.trim() || '';
+  
+  console.log('📝 Composer text check (innerText):', `"${composerText1.slice(0, 50)}..." (${composerText1.length} chars)`);
+  console.log('📝 Composer text check (textContent):', `"${composerText2.slice(0, 50)}..." (${composerText2.length} chars)`);
+  console.log('📝 Composer text check (value):', `"${composerText3.slice(0, 50)}..." (${composerText3.length} chars)`);
+  
+  const hasAnyText = composerText1 || composerText2 || composerText3;
+  if (!hasAnyText) {
+    console.error('❌ CRITICAL: Composer is completely empty by all methods');
+    // Try to re-insert text one more time
+    console.log('🔄 Attempting to re-insert text...');
+    await simulateRealUserInput(composer, replyText);
+    await waitMs(2000);
+    
+    const retryText = composer.innerText?.trim() || composer.textContent?.trim() || '';
+    if (!retryText) {
+      console.error('❌ CRITICAL: Still no text after retry, aborting send');
+      return false;
+    }
+    console.log('✅ Text re-inserted successfully');
+  }
+  
+  // TRIPLE-REDUNDANT BUTTON DETECTION
+  console.log('🔍 PHASE 1: Looking for send button with comprehensive strategy...');
+  
+  let sendButton = null;
+  
+  // STRATEGY 1: X.com specific data-testid selectors
+  console.log('🎯 Strategy 1: X.com data-testid selectors');
+  const xSelectors = [
+    '[data-testid="tweetButton"]',
+    '[data-testid="tweetButtonInline"]',
+    '[data-testid="toolBar"] [role="button"]',
+    '[aria-label*="Reply"]',
+    '[aria-label*="Post reply"]',
+    '[aria-label*="Tweet"]'
+  ];
+  
+  const scopes = [
+    composer.closest('div[role="dialog"]'),
+    composer.closest('article'),
+    composer.closest('form'),
+    composer.parentElement?.parentElement,
+    document
+  ].filter(Boolean);
+  
+  console.log(`🔍 Searching in ${scopes.length} scopes:`, scopes.map(s => s.tagName));
+  
+  for (let scopeIndex = 0; scopeIndex < scopes.length; scopeIndex++) {
+    const scope = scopes[scopeIndex];
+    console.log(`🔍 Scope ${scopeIndex + 1}: ${scope.tagName} ${scope.className || ''}`);
+    
+    for (let selectorIndex = 0; selectorIndex < xSelectors.length; selectorIndex++) {
+      const selector = xSelectors[selectorIndex];
+      console.log(`  🎯 Trying selector: ${selector}`);
+      
+      try {
+        const buttons = scope.querySelectorAll(selector);
+        console.log(`    📊 Found ${buttons.length} buttons with this selector`);
+        
+        for (let btnIndex = 0; btnIndex < buttons.length; btnIndex++) {
+          const btn = buttons[btnIndex];
+          const rect = btn.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+          const isDisabled = btn.disabled || btn.hasAttribute('aria-disabled') === 'true';
+          const bgColor = getComputedStyle(btn).backgroundColor;
+          const textContent = btn.textContent?.trim() || '';
+          
+          console.log(`    🔘 Button ${btnIndex + 1}:`, {
+            visible: isVisible,
+            disabled: isDisabled,
+            size: `${rect.width}x${rect.height}`,
+            bgColor: bgColor,
+            text: textContent.slice(0, 20),
+            ariaLabel: btn.getAttribute('aria-label')
+          });
+          
+          // Check if this is a valid send button
+          const isValidSendButton = isVisible && !isDisabled && (
+            bgColor.includes('29, 155, 240') || // X blue
+            bgColor.includes('15, 20, 25') ||   // X dark mode
+            textContent.toLowerCase().includes('reply') ||
+            textContent.toLowerCase().includes('post') ||
+            btn.getAttribute('aria-label')?.toLowerCase().includes('reply')
+          );
+          
+          if (isValidSendButton) {
+            console.log(`✅ FOUND VALID SEND BUTTON! Strategy 1, Scope ${scopeIndex + 1}, Selector ${selectorIndex + 1}, Button ${btnIndex + 1}`);
+            sendButton = btn;
+            break;
+          }
+        }
+        if (sendButton) break;
+      } catch (e) {
+        console.warn(`⚠️ Error with selector ${selector}:`, e.message);
+      }
+    }
+    if (sendButton) break;
+  }
+  
+  // STRATEGY 2: If no button found, try visual detection
+  if (!sendButton) {
+    console.log('🎯 Strategy 2: Visual button detection by color and position');
+    const allButtons = document.querySelectorAll('button, div[role="button"]');
+    console.log(`🔍 Scanning ${allButtons.length} total buttons on page`);
+    
+    for (let i = 0; i < allButtons.length; i++) {
+      const btn = allButtons[i];
+      const rect = btn.getBoundingClientRect();
+      const style = getComputedStyle(btn);
+      
+      // Check if button is in the right area (near composer)
+      const composerRect = composer.getBoundingClientRect();
+      const isNearComposer = Math.abs(rect.top - composerRect.bottom) < 200;
+      
+      if (rect.width > 0 && rect.height > 0 && isNearComposer) {
+        const bgColor = style.backgroundColor;
+        const isBlue = bgColor.includes('29, 155, 240') || bgColor.includes('26, 140, 216');
+        const hasReplyText = btn.textContent?.toLowerCase().includes('reply') || 
+                           btn.textContent?.toLowerCase().includes('post');
+        
+        if (isBlue || hasReplyText) {
+          console.log(`✅ FOUND BUTTON BY VISUAL DETECTION! Button ${i}`);
+          console.log(`📊 Button details:`, {
+            text: btn.textContent?.trim().slice(0, 30),
+            bgColor: bgColor,
+            size: `${rect.width}x${rect.height}`,
+            nearComposer: isNearComposer
+          });
+          sendButton = btn;
+          break;
+        }
+      }
+    }
+  }
+  
+  // STRATEGY 3: Last resort - find any clickable element with "Reply" or similar
+  if (!sendButton) {
+    console.log('🎯 Strategy 3: Last resort text-based detection');
+    const textElements = document.querySelectorAll('*');
+    for (const el of textElements) {
+      const text = el.textContent?.trim().toLowerCase() || '';
+      const isClickable = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button';
+      const rect = el.getBoundingClientRect();
+      const isVisible = rect.width > 0 && rect.height > 0;
+      
+      if (isClickable && isVisible && (text === 'reply' || text === 'post' || text === 'tweet')) {
+        console.log(`✅ FOUND BUTTON BY TEXT! Text: "${text}"`);
+        sendButton = el;
+        break;
+      }
+    }
+  }
+  
+  if (!sendButton) {
+    console.error('❌ CRITICAL FAILURE: Could not find send button with ANY strategy');
+    console.log('🔍 Debug: Composer area HTML:', composer.closest('div[role="dialog"]')?.outerHTML.slice(0, 500));
+    return false;
+  }
+  
+  console.log('🎉 SUCCESS: Send button found!');
+  console.log('📊 Final button details:', {
+    tagName: sendButton.tagName,
+    className: sendButton.className,
+    textContent: sendButton.textContent?.trim(),
+    ariaLabel: sendButton.getAttribute('aria-label'),
+    dataTestId: sendButton.getAttribute('data-testid')
+  });
+  
+  // TRIPLE-REDUNDANT CLICKING SEQUENCE
+  console.log('🚀 PHASE 2: Executing triple-redundant click sequence...');
+  
+  // Pre-click preparation
+  composer.focus();
+  await waitMs(200);
+  
+  // CLICK METHOD 1: Comprehensive mouse event simulation
+  console.log('🖱️ Method 1: Comprehensive mouse event simulation');
+  try {
+    const rect = sendButton.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    const mouseEvents = [
+      { type: 'mouseover', clientX: centerX, clientY: centerY },
+      { type: 'mouseenter', clientX: centerX, clientY: centerY },
+      { type: 'mousemove', clientX: centerX, clientY: centerY },
+      { type: 'mousedown', clientX: centerX, clientY: centerY, button: 0 },
+      { type: 'mouseup', clientX: centerX, clientY: centerY, button: 0 },
+      { type: 'click', clientX: centerX, clientY: centerY, button: 0 }
+    ];
+    
+    for (const eventData of mouseEvents) {
+      const event = new MouseEvent(eventData.type, {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        clientX: eventData.clientX,
+        clientY: eventData.clientY,
+        button: eventData.button || 0,
+        buttons: eventData.type.includes('down') ? 1 : 0
+      });
+      sendButton.dispatchEvent(event);
+      await waitMs(50);
+    }
+    
+    console.log('✅ Method 1 completed');
+    await waitMs(2000);
+    
+    // Check if sent
+    if (await verifySent(composer, replyText)) {
+      console.log('🎉 SUCCESS! Reply sent via Method 1 (mouse events)');
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ Method 1 failed:', e.message);
+  }
+  
+  // CLICK METHOD 2: Direct button click
+  console.log('🖱️ Method 2: Direct button click');
+  try {
+    sendButton.focus();
+    await waitMs(100);
+    sendButton.click();
+    
+    console.log('✅ Method 2 completed');
+    await waitMs(2000);
+    
+    if (await verifySent(composer, replyText)) {
+      console.log('🎉 SUCCESS! Reply sent via Method 2 (direct click)');
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ Method 2 failed:', e.message);
+  }
+  
+  // CLICK METHOD 3: Keyboard activation
+  console.log('⌨️ Method 3: Keyboard activation');
+  try {
+    sendButton.focus();
+    await waitMs(100);
+    
+    // Press Enter on the button
+    const enterEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    });
+    sendButton.dispatchEvent(enterEvent);
+    
+    await waitMs(100);
+    
+    const enterUpEvent = new KeyboardEvent('keyup', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    });
+    sendButton.dispatchEvent(enterUpEvent);
+    
+    console.log('✅ Method 3 completed');
+    await waitMs(2000);
+    
+    if (await verifySent(composer, replyText)) {
+      console.log('🎉 SUCCESS! Reply sent via Method 3 (keyboard)');
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ Method 3 failed:', e.message);
+  }
+  
+  // CLICK METHOD 4: Ctrl/Cmd+Enter shortcut
+  console.log('⌨️ Method 4: Ctrl/Cmd+Enter shortcut');
+  try {
+    composer.focus();
+    await waitMs(100);
+    
+    const isMac = navigator.platform.toLowerCase().includes('mac');
+    const shortcutEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      [isMac ? 'metaKey' : 'ctrlKey']: true,
+      bubbles: true,
+      cancelable: true
+    });
+    
+    composer.dispatchEvent(shortcutEvent);
+    document.dispatchEvent(shortcutEvent);
+    
+    console.log(`✅ Method 4 completed (${isMac ? 'Cmd' : 'Ctrl'}+Enter)`);
+    await waitMs(2000);
+    
+    if (await verifySent(composer, replyText)) {
+      console.log('🎉 SUCCESS! Reply sent via Method 4 (shortcut)');
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ Method 4 failed:', e.message);
+  }
+  
+  // CLICK METHOD 5: Force trigger all possible events
+  console.log('🔥 Method 5: Nuclear option - trigger all events');
+  try {
+    const allEvents = [
+      'focus', 'click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup',
+      'touchstart', 'touchend', 'keydown', 'keypress', 'keyup'
+    ];
+    
+    sendButton.focus();
+    await waitMs(100);
+    
+    for (const eventType of allEvents) {
+      try {
+        let event;
+        if (eventType.includes('key')) {
+          event = new KeyboardEvent(eventType, {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            bubbles: true,
+            cancelable: true
+          });
+        } else {
+          event = new Event(eventType, { bubbles: true, cancelable: true });
+        }
+        sendButton.dispatchEvent(event);
+      } catch (e) {
+        // Ignore individual event errors
+      }
+    }
+    
+    console.log('✅ Method 5 completed');
+    await waitMs(3000);
+    
+    if (await verifySent(composer, replyText)) {
+      console.log('🎉 SUCCESS! Reply sent via Method 5 (nuclear option)');
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ Method 5 failed:', e.message);
+  }
+  
+  console.error('❌ TOTAL FAILURE: All 5 click methods failed');
+  console.log('🔍 Final debug - button state:', {
+    connected: sendButton.isConnected,
+    visible: sendButton.getBoundingClientRect().width > 0,
+    disabled: sendButton.disabled,
+    ariaDisabled: sendButton.getAttribute('aria-disabled'),
+    computedStyle: getComputedStyle(sendButton).backgroundColor
+  });
+  
+  return false;
+}
+
+// Verification function to check if reply was sent
+async function verifySent(composer, replyText) {
+  console.log('🔍 Verifying if reply was sent...');
+  
+  // Method 1: Check if composer is gone or empty
+  if (!composer || !composer.isConnected) {
+    console.log('✅ Composer disconnected - likely sent');
+    return true;
+  }
+  
+  const composerText = (composer.innerText || composer.textContent || '').trim();
+  if (!composerText || composerText.length < 10) {
+    console.log('✅ Composer empty/minimal - likely sent');
+    return true;
+  }
+  
+  // Method 2: Look for success indicators in DOM
+  const successSelectors = [
+    '[data-testid="toast"]',
+    '.notification',
+    '[role="status"]'
+  ];
+  
+  for (const selector of successSelectors) {
+    const elements = document.querySelectorAll(selector);
+    for (const el of elements) {
+      const text = (el.textContent || '').toLowerCase();
+      if (text.includes('sent') || text.includes('posted') || text.includes('reply')) {
+        console.log('✅ Success indicator found:', text.slice(0, 50));
+        return true;
+      }
+    }
+  }
+  
+  // Method 3: Look for the reply in recent tweets
+  if (replyText && replyText.length > 10) {
+    const probe = replyText.split(/\s+/).slice(0, 5).join(' ');
+    const articles = document.querySelectorAll('article');
+    
+    for (const article of articles) {
+      const articleText = (article.innerText || '').trim();
+      if (articleText.includes(probe)) {
+        console.log('✅ Reply found in page content');
+        return true;
+      }
+    }
+  }
+  
+  console.log('❌ No send verification found');
+  return false;
+}
+
+// Helper function to get tweet ID
+      events.forEach(eventType => {
+        const event = new MouseEvent(eventType, {
+          view: window,
+          bubbles: true,
+          cancelable: true,
+          clientX: x,
+          clientY: y,
+          button: 0
+        });
+        sendButton.dispatchEvent(event);
+      });
+      console.log('🖱️ Method 1: Mouse event sequence dispatched');
+    },
+    
+    // Method 2: Direct button click
+    () => {
+      sendButton.click();
+      console.log('🖱️ Method 2: Direct button click');
+    },
+    
+    // Method 3: Focus and Enter
+    () => {
+      sendButton.focus();
+      sendButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+      sendButton.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+      console.log('⌨️ Method 3: Enter key press');
+    },
+    
+    // Method 4: Ctrl/Cmd+Enter on composer (X.com shortcut)
+    () => {
+      composer.focus();
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const key = isMac ? 'metaKey' : 'ctrlKey';
+      const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        keyCode: 13,
+        [key]: true,
+        bubbles: true,
+        cancelable: true
+      });
+      composer.dispatchEvent(event);
+      console.log(`⌨️ Method 4: ${isMac ? 'Cmd' : 'Ctrl'}+Enter shortcut`);
+    }
+  ];
+  
+  // Try each method with verification
+  for (let i = 0; i < clickMethods.length; i++) {
+    console.log(`🚀 Trying send method ${i + 1}/${clickMethods.length}...`);
+    
+    clickMethods[i]();
+    await waitMs(2000); // Wait for send to process
+    
+    // Check if sent
+    const sent = await verifySent(composer, replyText);
+    if (sent) {
+      console.log(`✅ SUCCESS! Reply sent using method ${i + 1}`);
+      return true;
+    }
+    
+    console.log(`❌ Method ${i + 1} failed, trying next...`);
+  }
+  
+  console.error('❌ CRITICAL FAILURE: All send methods failed');
+  return false;
+}
+
+function checkIfSent(composer, replyText) {
+  // Method 1: Check if composer is gone or empty
+  if (!composer || !composer.isConnected) {
+    console.log('✅ Composer disconnected - likely sent');
+    return true;
+  }
+  
+  const composerText = (composer.innerText || '').trim();
+  if (!composerText) {
+    console.log('✅ Composer empty - likely sent');
+    return true;
+  }
+  
+  // Method 2: Look for the reply in the page
+  if (replyText) {
+    const probe = replyText.split(/\s+/).slice(0, 8).join(' ');
+    const found = Array.from(document.querySelectorAll('article')).some(a => 
+      (a.innerText || '').includes(probe)
+    );
+    if (found) {
+      console.log('✅ Reply found in page - sent successfully');
+      return true;
+    }
+  }
+  
+  console.log('⏳ Reply not yet sent, composer still has text');
+  return false;
+}
+
+// Add missing functions that are being called
+function getAuthorMeta(article) {
+  const handleEl = article.querySelector('[data-testid="User-Name"] a, [href*="/"]');
+  const handle = handleEl ? handleEl.getAttribute('href')?.replace('/', '') || 'unknown' : 'unknown';
+  const verified = !!article.querySelector('[aria-label*="Verified"]');
+  return { handle, verified };
+}
+
+function isWithinQuietHours(prefs) {
+  if (!prefs.xengager_quietEnable) return false;
+  
+  const now = new Date();
+  const currentHour = now.getHours();
+  const startHour = parseInt(prefs.xengager_quietStart?.split(':')[0] || 22);
+  const endHour = parseInt(prefs.xengager_quietEnd?.split(':')[0] || 7);
+  
+  if (startHour > endHour) {
+    // Quiet hours span midnight
+    return currentHour >= startHour || currentHour <= endHour;
+  } else {
+    // Normal quiet hours
+    return currentHour >= startHour && currentHour <= endHour;
+  }
+}
+
+function humanize(text) {
+  // Simple humanization - just return the text as is for now
+  return text;
+}
+
+function activateComposer(composer) {
+  composer.focus();
+  composer.click();
+  return Promise.resolve();
+}
+
+async function sendWithKeyboard(composer) {
+  try { composer.focus(); } catch {}
+  const targets = [
+    composer,
+    composer?.closest('div[role="dialog"]'),
+    document.activeElement,
+    document.body,
+    document
+  ].filter(Boolean);
+  const kwargs = {
+    key: 'Enter',
+    code: 'Enter',
+    metaKey: isMac(),
+    ctrlKey: !isMac(),
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  };
+  for (const t of targets) {
+    t.dispatchEvent(new KeyboardEvent('keydown', kwargs));
+    t.dispatchEvent(new KeyboardEvent('keypress', kwargs));
+    t.dispatchEvent(new KeyboardEvent('keyup', kwargs));
+  }
+  await waitMs(600);
+}
+
+function getReplyButtonFromComposer(composer) {
+  const dialog = composer?.closest('div[role="dialog"]') || document;
+  return findReplyButton(dialog);
+}
+
+function isReplyButtonEnabled(btn) {
+  if (!btn) return false;
+  if (btn.disabled === true) return false;
+  const aria = btn.getAttribute('aria-disabled');
+  if (aria === 'true') return false;
+  return true;
+}
+
+async function ensureReplyEnabled(composer, maxTries = 12) {
+  for (let i = 0; i < maxTries && !BOLDTAKE_STOP; i++) {
+    const btn = getReplyButtonFromComposer(composer);
+    updateDebug({ 
+      enableTry: i + 1, 
+      ariaDisabled: btn?.getAttribute('aria-disabled') || null,
+      buttonBgColor: btn ? window.getComputedStyle(btn).backgroundColor : null,
+      composerText: composer?.textContent?.slice(0, 50) || ''
+    });
+    updateDebugPanel();
+    
+    if (isReplyButtonEnabled(btn)) return true;
+
+    // Enhanced activation sequence for X.com's React state
+    try {
+      composer.focus();
+      await waitMs(50);
+      
+      // Method 1: Ensure text content is present and properly formatted
+      const currentText = composer.textContent || '';
+      if (currentText.length > 0) {
+        // Clear and re-insert text to trigger proper React state
+        composer.innerHTML = '';
+        await waitMs(25);
+        
+        // Use multiple insertion methods
+        document.execCommand('insertText', false, currentText);
+        await waitMs(25);
+        
+        // Also try direct text node insertion
+        const textNode = document.createTextNode(currentText);
+        composer.appendChild(textNode);
+      }
+      
+      // Method 2: Trigger comprehensive input event sequence
+      const inputEvents = [
+        new Event('focus', { bubbles: true }),
+        new CompositionEvent('compositionstart', { bubbles: true, data: '' }),
+        new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: currentText }),
+        new CompositionEvent('compositionupdate', { bubbles: true, data: currentText }),
+        new InputEvent('input', { bubbles: true, inputType: 'insertText', data: currentText }),
+        new CompositionEvent('compositionend', { bubbles: true, data: currentText }),
+        new Event('change', { bubbles: true })
+      ];
+      
+      for (const event of inputEvents) {
+        composer.dispatchEvent(event);
+        await waitMs(10);
+      }
+      
+      // Method 3: Cursor positioning and selection
+      const range = document.createRange();
+      const selection = window.getSelection();
+      if (composer.firstChild) {
+        range.setStart(composer.firstChild, Math.min(currentText.length, composer.firstChild.textContent?.length || 0));
+        range.setEnd(composer.firstChild, Math.min(currentText.length, composer.firstChild.textContent?.length || 0));
+      } else {
+        range.selectNodeContents(composer);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Method 4: Simulate user interaction with keystrokes
+      const keyEvents = [
+        { key: 'End', code: 'End' },
+        { key: 'Home', code: 'Home' },
+        { key: 'End', code: 'End' }
+      ];
+      
+      for (const keyData of keyEvents) {
+        const keyEvent = new KeyboardEvent('keydown', { 
+          ...keyData, 
+          bubbles: true, 
+          cancelable: true 
+        });
+        composer.dispatchEvent(keyEvent);
+        await waitMs(15);
+      }
+      
+      // Method 5: Force React re-render with blur/focus cycle
+      composer.blur();
+      await waitMs(100);
+      composer.focus();
+      await waitMs(100);
+      
+      // Method 6: Try clicking on the composer to ensure it's active
+      composer.click();
+      await waitMs(50);
+      
+    } catch (e) {
+      console.warn('Composer activation error:', e);
+    }
+  }
+  
+  return isReplyButtonEnabled(getReplyButtonFromComposer(composer));
+}
+
+function isContextRich(article, prefs = {}) {
+  const textEl = article.querySelector('div[lang], [data-testid="tweetText"]');
+  const text = textEl?.innerText?.trim() || '';
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const sentences = text.split(/[.!?]+\s/).map(s => s.trim()).filter(Boolean);
+  const hasMedia = !!(article.querySelector('[data-testid="videoPlayer"], video, img[src*="twimg"]'));
+  
+  // Retweet/repost heuristic
+  const isRepost = /\bRT\b|reposted by/i.test(article.innerText || '') || !!article.querySelector('[data-testid="socialContext"]');
+  
+  // English heuristic: at least 70% ASCII letters/spaces
+  const ascii = (text.match(/[\x20-\x7E]/g) || []).length;
+  const englishish = ascii / Math.max(1, text.length) > 0.7;
+
+  // Use provided prefs or fallback to reasonable defaults
+  const minWords = prefs.xengager_minWords || 25;
+  const minSentences = prefs.xengager_minSentences || 3;
+  const skipMediaOnly = prefs.xengager_skipMediaOnly !== false; // default true
+  const skipRetweets = !!prefs.xengager_skipRetweets;
+  const requireEnglish = !!prefs.xengager_requireEnglish;
+
+  console.log(`📊 Context check for tweet: ${wordCount} words, ${sentences.length} sentences, media: ${hasMedia}, repost: ${isRepost}, english: ${englishish}`);
+
+  if (skipRetweets && isRepost) {
+    console.log('❌ Context check failed: retweet/repost');
+    return false;
+  }
+  if (requireEnglish && !englishish) {
+    console.log('❌ Context check failed: not English');
+    return false;
+  }
+  if (skipMediaOnly && hasMedia && wordCount < minWords) {
+    console.log('❌ Context check failed: media-only with insufficient text');
+    return false;
+  }
+  if (sentences.length < minSentences && wordCount < minWords) {
+    console.log('❌ Context check failed: insufficient content');
+    return false;
+  }
+  
+  console.log('✅ Context check passed');
+  return true;
+}
+
+function getTweetId(article) {
+  const link = article.querySelector('a[href*="/status/"]');
+  if (!link) return null;
+  const m = link.getAttribute('href').match(/status\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+async function generateWithOpenAI(templateId, selectedText, prefs) {
+  const payload = {
+    templateId,
+    selectedText,
+    model: prefs.xengager_model,
+    language: prefs.language || 'English',
+    tone: prefs.tone || 'Neutral',
+    style: prefs.style || 'Informal'
+  };
+  const res = await chrome.runtime.sendMessage({ type: 'XENGAGER_OPENAI', payload });
+  if (!res?.ok) throw new Error(res?.error || 'OpenAI failed');
+  return res.text;
+}
+
+async function runOnceOnCurrentPage() {
+  if (BOLDTAKE_RUNNING) {
+    console.log('🔄 Extension already running, skipping...');
+    return;
+  }
+  
+  console.log('🚀 Starting Post Ideas Helper...');
+  
+  try {
+    const prefs = await chrome.storage.local.get({
+      xengager_query: 'min_faves:500 lang:en',
+      xengager_template: '1',
+      xengager_autoSend: false,
+      xengager_delayMin: 120,
+      xengager_delayMax: 300,
+      xengager_mode: 'auto',
+      xengager_target: 'search',
+      xengager_model: 'gpt-5',
+      xengager_autoChoose: true,
+      xengager_imperfections: true,
+      xengager_simulateTyping: true,
+      xengager_maxPerRun: 10
+    });
+    
+    const human = await chrome.storage.local.get({
+      xengager_likeEnabled: true,
+      xengager_likeChance: 25,
+      xengager_dwellMin: 8,
+      xengager_dwellMax: 20
+    });
+
+    console.log('📋 Loaded preferences:', { prefs, human });
+
+    if (!isOnX()) {
+      console.error('❌ Not on X.com/Twitter.com');
+      toast('Please navigate to X.com first');
+      return;
+    }
+    
+    BOLDTAKE_RUNNING = true;
+    BOLDTAKE_STOP = false;
+    ensureOverlay();
+    setStatus('Starting…');
+    console.log('✅ Extension initialized, navigating to target...');
+    
+    const startedAt = Date.now();
+    const manualFlow = !prefs.xengager_autoSend; // user will manually press Cmd/Ctrl+Enter
+    
+    // Work on whatever page the user is currently on - keep it simple!
+    console.log('📍 Working on current page:', location.href);
+    setStatus('Working on current page...');
+    
+    console.log('⏳ Waiting for page to load...');
+    setStatus('Loading page...');
+    await waitMs(1500);
+
+    const processed = new Set();
+    const maxReplies = Math.max(1, prefs.xengager_maxPerRun || 10); // safety cap per run
+    let made = 0;
+    
+    console.log(`☕ Starting 500-tweet daily engagement system`);
+    setStatus('☕ Running 24/7! Relax while we engage with 500 tweets today...');
+
+    // Add automatic restart and health monitoring
+    let consecutiveErrors = 0;
+    let lastSuccessTime = Date.now();
+    const maxConsecutiveErrors = 5;
+    const healthCheckInterval = 300000; // 5 minutes
+    
+    // Start health monitor
+    const healthMonitor = setInterval(() => {
+      const timeSinceLastSuccess = Date.now() - lastSuccessTime;
+      
+      if (timeSinceLastSuccess > healthCheckInterval && !BOLDTAKE_STOP) {
+        console.log('🏥 Health check: System seems stuck, attempting restart...');
+        setStatus('🔄 System restart - ensuring continuous operation...');
+        
+        // Reset error counters and continue
+        consecutiveErrors = 0;
+        lastSuccessTime = Date.now();
+        
+        // Scroll to refresh page content
+        window.scrollBy({ top: window.innerHeight, behavior: 'smooth' });
+      }
+    }, healthCheckInterval);
+
+    while (made < maxReplies && !BOLDTAKE_STOP) {
+      const tweets = getTweetNodes();
+      console.log(`📊 Found ${tweets.length} tweet nodes on page`);
+      
+      if (tweets.length === 0) {
+        console.warn('⚠️ No tweets found on page!');
+        setStatus('No tweets found - scrolling...');
+        window.scrollBy({ top: window.innerHeight * 0.5, behavior: 'smooth' });
+        await waitMs(3000);
+        continue;
+      }
+      
+      let progressed = false;
+      for (const article of tweets) {
+        if (BOLDTAKE_STOP) break;
+        
+        // Wrap each tweet processing in try-catch for error recovery
+        try {
+          // Only process visible articles to reduce flaky selectors
+          const rect = article.getBoundingClientRect();
+          if (rect.bottom < 0 || rect.top > window.innerHeight * 1.2) {
+            continue;
+          }
+          
+          const id = getTweetId(article) || `${tweets.indexOf(article)}-${Date.now()}`;
+          console.log(`🔍 Processing tweet ${id}`);
+          
+          if (processed.has(id)) {
+            console.log(`⏭️ Tweet ${id} already processed, skipping`);
+            continue;
+          }
+          
+          // Get author metadata
+          const meta = getAuthorMeta(article);
+          console.log(`👤 Author: @${meta.handle}, verified: ${meta.verified}`);
+          
+          // Apply filters with logging
+          if (prefs.xengager_requireVerified && !meta.verified) { 
+            console.log(`❌ Skipping ${id}: not verified`);
+            processed.add(id); 
+            continue; 
+          }
+        
+        if (Array.isArray(prefs.xengager_whitelist) && prefs.xengager_whitelist.length) {
+          const ok = prefs.xengager_whitelist.some(h => meta.handle.toLowerCase().includes(h.toLowerCase()));
+          if (!ok) { 
+            console.log(`❌ Skipping ${id}: not in whitelist`);
+            processed.add(id); 
+            continue; 
+          }
+        }
+        
+        if (Array.isArray(prefs.xengager_blacklist) && prefs.xengager_blacklist.length) {
+          const bad = prefs.xengager_blacklist.some(h => meta.handle.toLowerCase().includes(h.toLowerCase()));
+          if (bad) { 
+            console.log(`❌ Skipping ${id}: in blacklist`);
+            processed.add(id); 
+            continue; 
+          }
+        }
+        
+        if (isWithinQuietHours(prefs)) { 
+          console.log(`❌ Skipping ${id}: within quiet hours`);
+          processed.add(id); 
+          continue; 
+        }
+
+        // Check tweet content quality
+        const text = extractTextFromTweet(article);
+        console.log(`📝 Tweet text (${text.length} chars): ${text.slice(0, 100)}...`);
+        
+        if (!text) { 
+          console.log(`❌ Skipping ${id}: no text content`);
+          processed.add(id); 
+          continue; 
+        }
+        
+        if (!isContextRich(article, prefs)) { 
+          console.log(`❌ Skipping ${id}: not context-rich enough`);
+          processed.add(id); 
+          continue; 
+        }
+        
+        console.log(`✅ Tweet ${id} passed all filters, proceeding to reply...`);
+
+      // Step 1: Read for exactly 10 seconds
+      console.log(`📖 Reading post ${made + 1}/20 for 10 seconds...`);
+      setStatus(`☕ Reading post ${made + 1}/20 (10s)... Grab your coffee!`);
+      
+      for (let i = 10; i > 0; i--) {
+        if (BOLDTAKE_STOP) break;
+        setStatus(`☕ Reading post ${made + 1}/20 (${i}s remaining)...`);
+        await waitMs(1000);
+      }
+      
+      if (BOLDTAKE_STOP) break;
+
+      // Step 2: Open reply composer
+      setStatus('🔄 Opening reply...');
+      console.log('🔄 Opening reply composer...');
+      const composer = await openReplyComposer(article);
+      if (!composer) { 
+        console.log('❌ Failed to open reply composer');
+        processed.add(id); 
+        continue; 
+      }
+      
+      // Step 3: Generate ONE confident AI response
+      setStatus(`🤖 Generating the perfect reply for post ${made + 1}/500...`);
+      console.log('🤖 Generating ONE confident AI response...');
+
+      // Choose template decisively
+      let templateId = String(prefs.xengager_template);
+      if (prefs.xengager_autoChoose) {
+        console.log('🎯 Selecting the best template for this tweet...');
+        const res = await chrome.runtime.sendMessage({ type: 'XENGAGER_CHOOSE_PROMPT', payload: { text } });
+        if (res?.ok && res.templateId) {
+          templateId = String(res.templateId);
+          console.log(`✅ Selected template ${templateId} as the best match`);
+        }
+      }
+
+      console.log(`🤖 Generating ONE confident reply using template ${templateId}...`);
+      const replyRaw = await generateWithOpenAI(templateId, text, prefs).catch((e) => {
+        console.error('❌ OpenAI generation failed:', e);
+        setStatus('❌ AI generation failed, moving to next tweet...');
+        processed.add(id);
+        return null; // Return null instead of continue
+      });
+      
+      if (!replyRaw || !replyRaw.trim()) { 
+        console.log('❌ Empty reply generated, skipping tweet');
+        processed.add(id); 
+        continue; 
+      }
+
+      // Clean the response to ensure it's ONE confident reply
+      let reply = prefs.xengager_imperfections ? humanize(replyRaw) : replyRaw;
+      reply = reply.trim();
+      
+      // Remove any multiple response indicators
+      if (reply.includes('\n\n') || reply.includes('Option 1') || reply.includes('Here are')) {
+        console.log('⚠️ Multiple responses detected, taking first one only');
+        reply = reply.split('\n\n')[0].split('Option 1')[0].split('Here are')[0].trim();
+      }
+      
+      console.log(`✅ Final confident reply: "${reply.slice(0, 50)}..."`);
+      
+      // Ensure no duplicate content
+      if (!reply || reply.length < 10) {
+        console.log('❌ Reply too short or empty after cleaning, skipping tweet');
+        processed.add(id);
+        continue;
+      }
+      
+      console.log(`✅ Generated reply: "${reply}"`);
+      console.log(`📝 Original tweet: "${text}"`);
+      console.log(`🎯 Template used: ${templateId}`);
+      
+      updateDebug({
+        originalTweet: text.slice(0, 200),
+        chosenTemplate: templateId,
+        replyPreview: reply.slice(0, 200),
+        replyFull: reply
+      });
+      updateDebugPanel();
+
+      // Step 4: Type the response
+      setStatus(`⌨️ Typing brilliant response for post ${made + 1}/20...`);
+      console.log('⌨️ Starting to type response...');
+      setComposerText(composer, reply);
+      
+      // Wait for typing to complete
+      await waitMs(1000);
+      
+      // Step 5: 110-second approval window
+      console.log('⏳ 110 second approval window...');
+      for (let i = 110; i > 0; i--) {
+        if (BOLDTAKE_STOP) break;
+        setStatus(`☕ ${i}s to review reply for post ${made + 1}/20 (plenty of time to relax!)`);
+        await waitMs(1000);
+      }
+      
+      if (BOLDTAKE_STOP) break;
+      
+      // Step 6: Ensure button is ready, then send
+      setStatus(`🔍 Verifying reply button is ready for post ${made + 1}/20...`);
+      console.log('🔍 Checking if reply button is ready...');
+      
+      // Give extra time for button to activate if needed
+      let buttonReady = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const sendBtn = getReplyButtonFromComposer(composer);
+        const buttonActive = isReplyButtonEnabled(sendBtn);
+        console.log(`🔘 Send button check ${attempt + 1}/5: ${buttonActive}`);
+        
+        if (buttonActive) {
+          buttonReady = true;
+          break;
+        }
+        
+        // Try to reactivate the composer
+        console.log('🔄 Button not ready, trying to reactivate...');
+        composer.focus();
+        composer.click();
+        await waitMs(500);
+      }
+      
+      if (!buttonReady) {
+        console.log('❌ Reply button never became ready, skipping send');
+        setStatus(`⚠️ Reply button not ready for post ${made + 1}/20, moving to next...`);
+        processed.add(id);
+        continue;
+      }
+      
+      // Step 7: Send the reply
+      setStatus(`🚀 Sending reply for post ${made + 1}/20...`);
+      console.log('🚀 Reply button ready, sending reply...');
+      
+      // Final check before sending
+      const finalSendBtn = getReplyButtonFromComposer(composer);
+      const finalButtonActive = isReplyButtonEnabled(finalSendBtn);
+      
+      if (!finalButtonActive) {
+        console.log('⚠️ Final check: Send button not active, trying to activate...');
+        await activateComposer(composer);
+        await waitMs(300);
+      }
+      
+      // Step 7: Send the reply immediately
+      setStatus('📤 Sending reply...');
+      console.log('📤 Clicking send button...');
+      
+      const sent = await clickSend(composer, reply);
+      
+      if (sent) {
+        console.log('✅ Reply sent successfully!');
+        made++;
+        consecutiveErrors = 0; // Reset error counter on success
+        lastSuccessTime = Date.now(); // Update health check timestamp
+        setStatus(`☕ Reply ${made}/500 sent! System running smoothly...`);
+        toast(`☕ Reply ${made}/500 sent! Keep enjoying your coffee!`);
+      } else {
+        console.error('❌ Failed to send reply');
+        setStatus('❌ Send failed');
+        toast('❌ Send failed, moving to next tweet');
+        
+        // Close any open dialogs/composers
+        const closeBtn = document.querySelector('[aria-label="Close"], [data-testid="app-bar-close"]');
+        if (closeBtn) {
+          console.log('🔄 Closing reply dialog...');
+          closeBtn.click();
+          await waitMs(1000);
+        }
+      }
+      processed.add(id);
+      // Count as replied only if composer cleared/closed or reply detected
+      const stillHasText = composer && composer.isConnected && (composer.innerText || '').trim().length > 0;
+      if (!stillHasText || (await (async () => { const probe = reply.split(/\s+/).slice(0,8).join(' '); return Array.from(document.querySelectorAll('article')).some(a => (a.innerText||'').includes(probe)); })())) {
+        made += 1;
+        setStatus(`Replied ${made}/${maxReplies}`);
+      } else {
+        setStatus('Skipped send');
+      }
+      progressed = true;
+      
+      } catch (error) {
+        // Error recovery mechanism
+        console.error('❌ Error processing tweet:', error);
+        consecutiveErrors++;
+        
+        updateDebug({
+          error: error.message,
+          stack: error.stack,
+          timestamp: new Date().toISOString(),
+          consecutiveErrors: consecutiveErrors
+        });
+        
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.log('🔄 Too many consecutive errors, restarting system...');
+          setStatus('🔄 Auto-restart: Ensuring continuous operation...');
+          toast('🔄 System restart - keeping things running smoothly!');
+          
+          // Reset and continue
+          consecutiveErrors = 0;
+          processed.clear(); // Clear processed tweets to allow retry
+          
+          // Scroll to get fresh content
+          window.scrollBy({ top: window.innerHeight * 2, behavior: 'smooth' });
+          await waitMs(5000); // Brief pause before continuing
+          
+          lastSuccessTime = Date.now(); // Reset health timer
+        } else {
+          // Single error - just log and continue
+          setStatus(`⚠️ Minor issue (${consecutiveErrors}/5) - continuing...`);
+          await waitMs(2000);
+        }
+        
+        // Skip this tweet and continue
+        if (id) processed.add(id);
+        continue;
+      }
+      
+      // Optional occasional like to humanize
+      if (human.xengager_likeEnabled && Math.random() * 100 < (human.xengager_likeChance || 0)) {
+        const likeBtn = article.querySelector('div[data-testid="like"]');
+        if (likeBtn) { 
+          console.log('❤️ Liking tweet occasionally...');
+          likeBtn.click(); 
+          await waitMs(800 + Math.random() * 1200); 
+        }
+      }
+      
+      // Slower tempo between tweets (30-60 seconds)
+      const betweenTweetDelay = 30000 + Math.random() * 30000; // 30-60 seconds
+      console.log(`⏳ Waiting ${Math.round(betweenTweetDelay/1000)}s before next tweet...`);
+      setStatus(`Waiting ${Math.round(betweenTweetDelay/1000)}s before next tweet...`);
+      
+      for (let i = 0; i < betweenTweetDelay/1000; i++) {
+        if (BOLDTAKE_STOP) break;
+        await waitMs(1000);
+        if (i % 10 === 0) { // Update status every 10 seconds
+          setStatus(`Next tweet in ${Math.round((betweenTweetDelay/1000) - i)}s...`);
+        }
+      }
+      
+      if (made >= maxReplies) break;
+    }
+
+    if (made >= maxReplies || BOLDTAKE_STOP) break;
+    if (!progressed) {
+      // Scroll to load more more slowly
+      window.scrollBy({ top: window.innerHeight * 0.5, behavior: 'smooth' });
+      await waitMs(2600 + Math.random() * 1200);
+    }
+    }
+    
+    console.log(`🏁 Finished processing. Made ${made} replies out of ${maxReplies} max.`);
+    setStatus('Completed!');
+    toast(`Completed! Made ${made} replies.`);
+    
+  } catch (error) {
+    console.error('💥 Extension error:', error);
+    setStatus('Error occurred');
+    toast(`Error: ${error.message}`);
+    updateDebug({ 
+      error: error.message, 
+      stack: error.stack?.slice(0, 500),
+      timestamp: new Date().toISOString()
+    });
+    updateDebugPanel();
+  } finally {
+    // Clean up health monitor
+    if (typeof healthMonitor !== 'undefined') {
+      clearInterval(healthMonitor);
+    }
+    
+    setTimeout(() => {
+      if (made >= (prefs.xengager_maxPerRun || 500)) {
+        setStatus(`🎉 Daily goal achieved! ${made}/500 tweets completed! ☕`);
+        toast(`🎉 Amazing! Engaged with ${made} tweets today! ☕`);
+      } else {
+        setStatus('☕ Ready to resume anytime!');
+      }
+      BOLDTAKE_RUNNING = false;
+    }, 3000);
+  }
+}
+
+function randomInRange(a, b) {
+  const min = Math.min(a || 0, b || 0);
+  const max = Math.max(a || 0, b || 0);
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function humanize(text) {
+  // Small imperfections: drop terminal punctuation sometimes, add micro typos occasionally
+  let t = text;
+  const lines = t.split(/\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let l = lines[i];
+    if (Math.random() < 0.15) {
+      l = l.replace(/[\.!?]+$/, ''); // delete question or punctuation sometimes
+    }
+    if (Math.random() < 0.1) {
+      // simple swap typo within a word with length > 4
+      l = l.replace(/(\w{2,})(\w)(\w)(\w{2,})/, (m, a, b, c, d) => a + c + b + d);
+    }
+    lines[i] = l;
+  }
+  t = lines.join('\n');
+  // Keep forbidden punctuation rule by removing accidental insertions
+  t = t.replace(/[\-—:;]+/g, '');
+  return t.trim();
+}
+
+async function typeIntoComposer(composer, text) {
+  composer.focus();
+  document.execCommand('selectAll', false, undefined);
+  document.execCommand('delete', false, undefined);
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(composer);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  // compositionstart to better mimic human typing
+  composer.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, cancelable: true, data: '' }));
+  for (const ch of text) {
+    const before = new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(before);
+    composer.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, cancelable: true, data: ch }));
+    const input = new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(input);
+    document.execCommand('insertText', false, ch);
+    await sleep(20 + Math.random() * 60);
+  }
+  composer.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, cancelable: true, data: '' }));
+  // Activate reply button state
+  activateComposer(composer);
+}
+
+async function typeIntoComposerWithTargetMs(composer, text, targetMs) {
+  composer.focus();
+  document.execCommand('selectAll', false, undefined);
+  document.execCommand('delete', false, undefined);
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(composer);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const chars = Array.from(text);
+  const baseDelay = Math.max(10, Math.floor(targetMs / Math.max(1, chars.length)));
+  const jitter = Math.max(4, Math.floor(baseDelay * 0.25));
+  const start = performance.now();
+  composer.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, cancelable: true, data: '' }));
+  for (const ch of chars) {
+    const before = new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(before);
+    composer.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, cancelable: true, data: ch }));
+    const input = new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' });
+    composer.dispatchEvent(input);
+    document.execCommand('insertText', false, ch);
+    await sleep(baseDelay + Math.floor(Math.random() * jitter));
+    if (BOLDTAKE_STOP) break;
+  }
+  composer.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, cancelable: true, data: '' }));
+  const elapsed = performance.now() - start;
+  if (elapsed < targetMs && !BOLDTAKE_STOP) {
+    await sleep(targetMs - elapsed);
+  }
+  activateComposer(composer);
+}
+
+async function activateComposer(composer) {
+  if (!composer || !composer.isConnected) return;
+  
+  console.log('🔧 Final composer activation check...');
+  
+  // Since we're using real keyboard events, the button should already be active
+  // Just ensure focus and cursor position are correct
+  composer.focus();
+  
+  // Position cursor at end of text
+  const currentText = composer.textContent || composer.innerText || '';
+  if (currentText.trim()) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    
+    if (composer.firstChild && composer.firstChild.nodeType === Node.TEXT_NODE) {
+      range.setStart(composer.firstChild, currentText.length);
+      range.setEnd(composer.firstChild, currentText.length);
+    } else {
+      range.selectNodeContents(composer);
+      range.collapse(false);
+    }
+    
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    console.log('✅ Cursor positioned at end, button should be active');
+  } else {
+    console.warn('⚠️ No text found in composer after keyboard typing');
+  }
+}
+
+async function ensureComposerActivated(composer) {
+  if (!composer || !composer.isConnected) return;
+  try { composer.focus(); } catch {}
+  // Move caret around a bit
+  const arrowArgs = { key: 'ArrowRight', code: 'ArrowRight', bubbles: true };
+  composer.dispatchEvent(new KeyboardEvent('keydown', arrowArgs));
+  composer.dispatchEvent(new KeyboardEvent('keyup', arrowArgs));
+  const arrowLeft = { key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true };
+  composer.dispatchEvent(new KeyboardEvent('keydown', arrowLeft));
+  composer.dispatchEvent(new KeyboardEvent('keyup', arrowLeft));
+  // Trigger space/backspace sequence
+  activateComposer(composer);
+  await waitMs(120);
+  // Blur/refocus to force React state sync
+  try { composer.blur(); } catch {}
+  await waitMs(60);
+  try { composer.focus(); } catch {}
+}
+
+function getAuthorMeta(article) {
+  const handleEl = article.querySelector('a[href^="/"] div span');
+  const handle = handleEl?.textContent?.trim() || '';
+  const verified = !!article.querySelector('svg[aria-label="Verified account"]');
+  // Followers count not available in list; skip unless on profile hover. We'll approximate by requiring verified when set, else pass.
+  return { handle, verified, protected: false, followers: null };
+}
+
+function isWithinQuietHours(prefs) {
+  if (!prefs.xengager_quietEnable) return false;
+  const now = new Date();
+  const [qsH, qsM] = String(prefs.xengager_quietStart || '22:00').split(':').map(Number);
+  const [qeH, qeM] = String(prefs.xengager_quietEnd || '07:00').split(':').map(Number);
+  const start = new Date(now); start.setHours(qsH, qsM, 0, 0);
+  const end = new Date(now); end.setHours(qeH, qeM, 0, 0);
+  if (start <= end) {
+    return now >= start && now <= end;
+  } else {
+    // crosses midnight
+    return now >= start || now <= end;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'XENGAGER_START') {
+    runOnceOnCurrentPage();
+  } else if (msg?.type === 'XENGAGER_STOP') {
+    BOLDTAKE_STOP = true;
+    setStatus('Stopping…');
+    // Auto-clear status to Idle after 2s even if we were between steps
+    setTimeout(() => { if (!BOLDTAKE_RUNNING) setStatus('Idle'); }, 2000);
+  }
+});
+
+// Check if we need to continue automation after page navigation
+// No more navigation complexity - users just stay on their current X.com page!
+
+

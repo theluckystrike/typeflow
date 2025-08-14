@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      margin: 0;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .logo {
+      font-size: 24px;
+      font-weight: bold;
+      color: #00ff88;
+      margin-bottom: 5px;
+    }
+    
+    .tagline {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .button {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .start-btn {
+      background: #00ff88;
+      color: #000;
+    }
+    
+    .start-btn:hover {
+      background: #00cc6a;
+    }
+    
+    .stop-btn {
+      background: #ff4444;
+      color: #fff;
+    }
+    
+    .stop-btn:hover {
+      background: #cc3333;
+    }
+    
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      background: #2a2a2a;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+      min-height: 20px;
+    }
+    
+    .instructions {
+      margin-top: 15px;
+      font-size: 11px;
+      color: #666;
+      text-align: center;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>BoldTake Professional</h1>
+    <p class="subtitle">AI-Powered X.com Automation</p>
+    
+    <div class="status-box">
+      <p id="status">Ready to start your 6+ hour session.</p>
+    </div>
+
+    <div class="actions">
+      <button id="start-btn" class="btn primary">🚀 Start Marathon Session (350 Tweets)</button>
+      <button id="stop-btn" class="btn secondary">⏹️ Stop Session</button>
+    </div>
+    
+    <div class="quick-tip">
+      <span class="tip-icon">💡</span>
+      <span class="tip-text">BoldTake will post ~350 replies over 6+ hours with a very slow, human-like pace.</span>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

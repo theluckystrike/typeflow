@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BoldTake Settings</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; max-width: 720px; }
+      input[type="text"] { width: 100%; }
+      .row { margin: 12px 0; }
+      .small { color: #666; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h2>BoldTake Settings</h2>
+    <div class="row">
+      <label>OpenAI API Key</label>
+      <input id="apiKey" type="text" placeholder="sk-..." />
+      <div class="small">Stored locally in your browser via chrome.storage</div>
+    </div>
+    <div class="row">
+      <button id="save">Save</button>
+      <span id="status" class="small"></span>
+    </div>
+    <script src="options.js"></script>
+  </body>
+  </html>
+
+

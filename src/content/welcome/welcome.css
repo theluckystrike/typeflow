@@ -1,0 +1,95 @@
+* {
+    margin: 0
+}
+
+.container {
+    width: 100%;
+    display: flex;
+    position: absolute;
+    top: 0;
+    background-image: url("../../../public/gradient-background.png");
+}
+
+.left-section {
+    width: 25%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.left-section img {
+    width: 12rem;
+}
+
+.right-section {
+    width: 75%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.25rem;
+}
+
+.title {
+    font-size: 2.25rem;
+    font-weight: bold;
+}
+
+.right-section img {
+    width: 1rem;
+    display: inline;
+}
+
+.description div {
+    font-size: 1rem;
+    font-weight: thin;
+    display: flex;
+    gap: 0.3125rem;
+    align-items: center;
+}
+
+.button {
+    width: fit-content;
+    padding: 0.625rem 1.5rem;
+    background-color: #000;
+    color: #fff;
+    border: none;
+    border-radius: 0.3125rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.button:hover {
+    background-color: #24D580;
+    color: #000;
+}
+
+.link {
+    cursor: pointer;
+    color: #0000EE;
+    text-decoration: underline;
+}
+
+.sidepanel {
+    margin: 5px 0;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+}
+
+.sidepanel p {
+    font-size: 1rem;
+    color: #333;
+}
+
+.shortcut-key {
+    font-weight: bold;
+    padding: 0.625rem 1.5rem;
+    background-color: #000;
+    border-radius: 4px;
+    font-size: 14px;
+    color: white;
+    margin: 0 4px;
+}

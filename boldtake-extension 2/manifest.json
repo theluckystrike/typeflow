@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "BoldTake: AI-Powered X.com Automation",
+  "version": "1.0.0",
+  "description": "Intelligent X.com engagement automation with AI-generated replies, real-time analytics, and professional workflow management.",
+  "action": {
+    "default_title": "BoldTake",
+    "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon.svg",
+    "48": "icon.svg",
+    "128": "icon.svg"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://api.openai.com"
+  }
+}
+
+

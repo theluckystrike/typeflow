@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BoldTake</title>
+    <style>
+      :root { --blue:#1D9BF0; --blue-600:#1778be; --bg:#ffffff; --fg:#0f1419; --muted:#667781; --card:#f7f9f9; }
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; width: 340px; background: var(--bg); color: var(--fg); }
+      header { padding: 12px 14px; border-bottom: 1px solid #e6ecf0; display:flex; align-items:center; gap:10px; }
+      header .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--blue), #6ec7ff); }
+      header h3 { margin:0; font-size: 15px; font-weight: 700; }
+      main { padding: 12px 14px; display:flex; flex-direction:column; gap: 10px; }
+      .section { background: var(--card); border: 1px solid #e6ecf0; border-radius: 10px; padding: 10px; }
+      .section h4 { margin: 0 0 8px 0; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+      .row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; gap:8px; }
+      .row label { font-size: 13px; color: var(--fg); }
+      select, input[type="number"], input[type="time"], input[type="text"], textarea { width: 100%; border: 1px solid #d2dbe1; border-radius: 10px; padding: 8px 10px; background:#fff; color:var(--fg); outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
+      select:focus, input:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29,155,240,0.18); }
+      input[type="checkbox"] { accent-color: var(--blue); }
+      textarea { resize: vertical; min-height: 60px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .actions { display:flex; align-items:center; justify-content: space-between; }
+      .btn { background: var(--blue); color:#fff; border:none; border-radius: 12px; padding: 9px 14px; cursor: pointer; font-weight:600; box-shadow: 0 2px 6px rgba(29,155,240,0.25); }
+      .btn:hover { background: var(--blue-600); }
+      .btn.secondary { background: #eef6ff; color: var(--blue); box-shadow: none; }
+      .btn:active { transform: translateY(1px); }
+      .small { font-size: 12px; color: var(--muted); padding: 4px 2px 10px; }
+      .section { box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo"></div>
+      <h3>BoldTake</h3>
+    </header>
+    <main>
+      <div class="section">
+        <h4>Control</h4>
+        <div class="actions">
+          <button class="btn" id="start">Start</button>
+          <button class="btn secondary" id="stop">Stop</button>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Query</h4>
+        <div class="row">
+          <input id="query" placeholder="min_faves:500 lang:en" />
+        </div>
+      </div>
+      <div class="small" id="status"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+  </html>
